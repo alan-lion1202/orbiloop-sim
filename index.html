@@ -1631,6 +1631,8 @@ function renderBt(dt) {
   const breathe = 0.45 + 0.55 * (0.5 + 0.5 * Math.cos(btAnim * Math.PI));
 
   if (btState === 'off') {
+    /* v3 图片序列自带完整进场动画，退场直接熄屏，不做线条擦除 */
+    if (btV === 3) return;
     if (btAnim < BT_OUT) {
       const p = btAnim / BT_OUT;
       if (btV === 1) {
