@@ -194,8 +194,9 @@
     <div id="btCtl" style="display:none;border-top:1px dashed var(--line);margin-top:14px;padding-top:14px">
       <div class="lab" style="margin-bottom:8px"><span>动画版本</span></div>
       <div class="seg" style="margin-bottom:12px" id="btVerSeg">
-        <button data-btv="1" class="on">v1 · 数字雨冲刷</button>
+        <button data-btv="1">v1 · 数字雨冲刷</button>
         <button data-btv="2">v2 · 一笔画</button>
+        <button data-btv="3" class="on">v3 · 径向广播（图片）</button>
       </div>
       <div class="lab" style="margin-bottom:8px"><span>敲击模拟（敲满 6 次开启蓝牙）</span><b id="btTapVal">0 / 6</b></div>
       <div class="seg" style="margin-bottom:12px">
@@ -382,6 +383,7 @@
 <script src="vendor/three.min.js"></script>
 <script src="data/shell.js"></script>
 <script src="data/env.js"></script>
+<script src="data/bt_frames.js"></script>
 <script>
 /* ============================================================
    开机自检彩蛋 —— 3D 效果模拟器
@@ -1408,7 +1410,7 @@ const BT_KANA = 'アイウエオカキクケコサシスセソタチツテトナ
 const BT_IN = 1.5;      /* 开启动画时长（秒） */
 const BT_OUT = 0.9;     /* 关闭动画时长（秒） */
 
-let btV = 1;            /* 动画版本 1/2 */
+let btV = 3;            /* 动画版本：1 数字雨冲刷 / 2 一笔画 / 3 图片序列（径向广播） */
 let btState = 'off';    /* off | adv | conn */
 let btAnim = 0;         /* 状态内计时 */
 let btWaitT = 0;        /* 广播已等待 */
@@ -1553,6 +1555,23 @@ function renderBt(dt) {
   const isConn = (btState === 'conn');
   const b = isConn ? 1 : breathe;
 
+  /* v3：广播态直接用图片序列；图片里没有"已连接"状态，已连接仍用代码画（符号 + 对焦框） */
+  if (btV === 3) {
+    if (isConn) {
+      btStroke(1, 1);
+      btStateLayer(1);
+    } else {
+      const img = btGifFrame();
+      if (img) {
+        g.drawImage(img, 0, 0);
+      } else {
+        btStroke(b, 1);
+        if (btAnim > BT_IN) btStateLayer(b);
+      }
+    }
+    return;
+  }
+
   if (btV === 1) {
     const p = Math.min(1, btAnim / BT_IN);
     const revealY = -6 + (H + 12) * p;
@@ -1573,6 +1592,27 @@ function renderBt(dt) {
 
   /* 状态指示层：广播中发信号弧 / 已连接锁对焦框 */
   if (btAnim > BT_IN) btStateLayer(b);
+}
+
+/* ---- v3：图片序列版（GPT 制作的径向广播动画，60 帧 150×128，每帧 50ms）---- */
+const BT_GIF_IMG = [];
+let btGifReady = 0;
+(function btGifLoad() {
+  if (typeof BT_GIF_FRAMES === "undefined") return;
+  for (let i = 0; i < BT_GIF_FRAMES.length; i++) {
+    const img = new Image();
+    img.onload = function () { btGifReady++; };
+    img.src = BT_GIF_FRAMES[i];
+    BT_GIF_IMG.push(img);
+  }
+})();
+/* 按真实时间取帧，自动循环 */
+function btGifFrame() {
+  if (!BT_GIF_IMG.length) return null;
+  const ms = (typeof BT_GIF_FRAME_MS === "number") ? BT_GIF_FRAME_MS : 50;
+  const idx = Math.floor((btAnim * 1000) / ms) % BT_GIF_IMG.length;
+  const img = BT_GIF_IMG[idx];
+  return (img && img.complete && img.naturalWidth) ? img : null;
 }
 
 /* 触发屏幕显示窗口：点亮 btShowDur 秒后自动熄屏 */
@@ -1620,9 +1660,13 @@ function btStateLayer(bright) {
   }
 }
 
+function btVName() {
+  return btV === 1 ? 'v1 数字雨冲刷' : (btV === 2 ? 'v2 一笔画' : 'v3 径向广播（图片）');
+}
+
 function btStateName() {
   if (btState === 'conn') return '已连接（对焦框锁定）';
-  if (btState === 'adv') return btPlugged ? '广播中·持续（插线·信号弧）' : '广播中（信号弧）';
+  if (btState === 'adv') return btPlugged ? '广播中·持续（插线）' : '广播中';
   return '未开启';
 }
 /* 敲一次 */
@@ -1639,7 +1683,7 @@ function btPanels() {
   const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
   set('btTapVal', btTaps + ' / 6');
   set('btInfo', '当前状态：' + btStateName() +
-    '　·　动画 ' + (btV === 1 ? 'v1 数字雨冲刷' : 'v2 一笔画') +
+    '　·　动画 ' + btVName() +
     (btShow > 0 ? '　·　屏幕亮 ' + btShow.toFixed(1) + 's' : '　·　屏幕已熄灭（蓝牙仍在工作）') +
     (btState === 'adv' && !btPlugged ? '　·　广播剩余 ' + Math.max(0, btWaitMax - btWaitT).toFixed(1) + 's' : ''));
 }
@@ -1741,7 +1785,7 @@ function loop(now) {
     renderBt(dt);
     btPanels();
     document.getElementById('segName').textContent =
-      '蓝牙连接（测试）· ' + (btV === 1 ? 'v1 数字雨冲刷' : 'v2 一笔画') + ' · ' + btStateName();
+      '蓝牙连接（测试）· ' + btVName() + ' · ' + btStateName();
     document.getElementById('clock').textContent =
       '敲击 ' + btTaps + ' / 6' +
       (btState === 'adv' && !btPlugged
