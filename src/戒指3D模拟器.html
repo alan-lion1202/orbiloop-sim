@@ -1,0 +1,2347 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>开机自检彩蛋 · 戒指显示模拟器</title>
+<style>
+  :root{ --bg:#0a0c0b; --panel:#131715; --line:#28302b; --txt:#e2eae5; --dim:#8b9a91; --acc:#00ff00; }
+  *{box-sizing:border-box}
+  html,body{margin:0;min-height:100%}
+  body{background:var(--bg);color:var(--txt);
+       font:13px/1.6 -apple-system,"PingFang SC","Hiragino Sans GB",sans-serif;
+       display:flex;justify-content:center;}
+  .page{width:100%;max-width:1560px;padding:20px 20px 40px;text-align:center}
+  h1{font-size:15px;margin:0 0 6px;font-weight:600;letter-spacing:.02em}
+  .spec{font-size:11px;color:var(--dim);line-height:1.75;margin-bottom:16px}
+  .spec b{color:var(--txt);font-weight:600}
+  .stage{background:radial-gradient(130% 100% at 50% 0%,#171c19 0%,#060807 72%);
+         border:1px solid var(--line);border-radius:16px;overflow:hidden;line-height:0}
+  canvas{display:block;margin:0 auto}
+  .hud{display:flex;justify-content:space-between;font-size:12px;color:var(--dim);padding:9px 2px 0}
+  .hud .t{color:var(--acc);font-variant-numeric:tabular-nums}
+  .bar{margin-top:14px;padding:14px 16px;background:var(--panel);border:1px solid var(--line);
+       border-radius:14px;text-align:left}
+  button{background:#1d2420;color:var(--txt);border:1px solid var(--line);border-radius:8px;
+         padding:7px 12px;font:600 12px/1 inherit;cursor:pointer}
+  button:hover{background:#26302a;border-color:#3d4a41}
+  button.on{background:#0e2a17;border-color:#1f6b3a;color:var(--acc)}
+  .grow{flex:1}
+  .ratio{font-variant-numeric:tabular-nums}
+  .ratio b{color:var(--acc);font-size:15px}
+  input[type=range]{width:100%;accent-color:var(--acc);height:18px}
+  .lab{display:flex;justify-content:space-between;font-size:12px;color:var(--dim);margin-bottom:4px}
+  .lab b{color:var(--txt);font-variant-numeric:tabular-nums;font-weight:600}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px 20px;margin-top:12px}
+  .row{margin-top:12px}
+  .cal{margin-top:14px;padding-top:12px;border-top:1px dashed var(--line);font-size:11px;color:var(--dim)}
+  #card{height:54px;background:linear-gradient(135deg,#1b2a3a,#2b4257);border:1px dashed #4b6b86;
+        border-radius:6px;margin:8px 0;display:flex;align-items:center;justify-content:center;
+        color:#9fc0da;font-size:11px}
+  .seg{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+  .seg button{padding:6px 10px;font-weight:500}
+  .hint{font-size:11px;color:var(--dim);margin-top:9px;line-height:1.65}
+  textarea{width:100%;background:#0e1411;color:var(--acc);border:1px solid var(--line);
+           border-radius:8px;padding:8px 10px;font:13px/1.7 Menlo,"SF Mono",monospace;
+           resize:vertical;outline:none}
+  textarea:focus{border-color:#1f6b3a}
+    /* ---- 左右两栏：全局显示设置靠左，3D 视口在右，模式/播放控制紧贴视口下方 ----
+       原因：所有设置都堆在视口下面时，「播放/重播」要往下滚很久才按得到。 */
+    .cols{display:flex;gap:16px;align-items:flex-start;margin-top:2px}
+    /* 左侧栏宽度必须容得下校准用的银行卡参照框：它是真实尺寸，
+       默认校准 4.30 px/mm 时宽 85.6×4.30 ≈ 368px。留窄了会把整页撑出横向滚动。 */
+    .side{flex:0 0 380px;max-height:calc(100vh - 150px);overflow-y:auto;
+          padding-right:10px;border-right:1px solid var(--line)}
+    .main{flex:1 1 auto;min-width:0}
+    .main .bar{margin-top:12px}
+    .side .cal{margin-top:12px}
+    /* 参照框真实尺寸不能缩，容器自己横向滚，避免把页面撑破 */
+    .side .cal{overflow-x:auto;padding-bottom:6px}
+    .side .cal #card{min-width:0}
+    /* 窄窗口才改成上下堆叠。注意 column 方向下 flex-basis 会变成"高度"，
+       必须显式改掉，否则左侧栏会被压成一个 340px 高的滚动小框。 */
+    @media (max-width:880px){
+      .cols{flex-direction:column}
+      .side{flex:0 0 auto;max-height:none;border-right:0;padding-right:0;width:100%}
+    }
+</style>
+</head>
+<body>
+<div class="page">
+  <h1>戒指 3D 效果模拟器</h1>
+  <div class="spec">
+    壳体外形 <b>21.66 × 26.99 × 19.62 mm</b>（J-001，实测）· 指孔 <b>Ø19.0</b> · 玻璃盖板 <b>15.80 × 13.94</b>（台阶深 0.70）<br>
+    逻辑分辨率 150×128 · 版面 <b>5 行</b> · 字 <b>16 px</b>（单行上限 14 字符）· 出厂自带内容一律纯绿 R0 255 B0
+  </div>
+
+  <div class="cols">
+    <aside class="side">
+    <div class="seg" style="margin-bottom:6px">
+      <span class="ratio" style="margin-left:auto">显示比例 <b id="pctVal">0%</b>　<span id="mulVal">1.0× · 实物大小</span></span>
+    </div>
+    <input type="range" id="ratio" min="0" max="100" value="0">
+    <div style="position:relative;height:14px;margin-top:-4px">
+      <div id="markTick" title="真机像素密度：从这里往右才与真机同密度"
+           style="position:absolute;top:0;width:2px;height:14px;background:#ffc14d;border-radius:1px;pointer-events:none"></div>
+    </div>
+    <div id="pxInfo" style="font-size:11px;text-align:left;line-height:1.7;margin-top:2px;color:var(--dim)"></div>
+    <div class="seg" style="margin-top:9px">
+      <button data-z="0" class="on">实物大小 0%</button>
+      <button data-z="1">2×</button>
+      <button data-z="2">4×</button>
+      <button data-z="3">最近</button>
+      <span class="grow"></span>
+      <button id="glass" class="on">玻璃盖板</button>
+    </div>
+    <div class="seg" style="margin-top:7px">
+      <span class="ratio">视角</span>
+      <button data-view="iso">等轴测</button>
+      <button data-view="front">俯视（正对屏幕）</button>
+      <button data-view="side">侧视</button>
+      <button data-view="back">背面</button>
+    </div>
+    <div class="seg" id="dispSeg" style="margin-top:7px">
+      <span class="ratio">显示区比例</span>
+      <button data-disp="A">A 实际 10.89×9.29</button>
+      <button data-disp="B" class="on">B 演示 12.66×10.80</button>
+    </div>
+    <div class="seg" id="fontSeg" style="margin-top:7px">
+      <span class="ratio">字号</span>
+      <button data-fs="16" class="on">16</button>
+      <button data-fs="20">20</button>
+      <button data-fs="24">24</button>
+      <button data-fs="28">28</button>
+      <button data-fs="32">32</button>
+      <span class="grow"></span>
+    </div>
+    <div id="capInfo" style="font-size:11px;color:var(--dim);text-align:right;margin-top:4px"></div>
+    <div id="overWarn" style="font-size:11px;color:#ff8a8a;text-align:left;margin-top:2px"></div>
+    <div class="hint">0% 永远是真实设备尺寸（按下方校准值换算）。拖动画布＝自由旋转，滚轮＝缩放。</div>
+    <div class="row">
+      <div class="lab"><span>环境光（TFT 在强光下发白，黑场抬起来）</span></div>
+      <div class="seg" id="lightSeg">
+        <button data-v="0" class="on">暗</button>
+        <button data-v="0.06">室内</button>
+        <button data-v="0.17">强光</button>
+      </div>
+    </div>
+
+    <div style="margin-top:12px;text-align:left">
+      <div class="lab"><span>金属亮度（镀铬环境强度）</span> <b id="metVal">1.00</b></div>
+      <input type="range" id="metal" min="40" max="280" value="100">
+    </div>
+    <div style="margin-top:10px;text-align:left">
+      <div class="lab"><span>抛光程度（左＝镜面亮银，右＝哑光灰）</span> <b id="rghVal">0.035</b></div>
+      <input type="range" id="rough" min="1" max="60" value="35">
+    </div>
+    <div class="cal">
+      <b>尺寸校准</b>：把一张银行卡贴在屏幕上，拖下面的滑块，让蓝色方框和卡片一样大。校完 0% 才是真正的实物尺寸（换显示器或改浏览器缩放要重校）。调过的值自动记住，刷新不用重设。
+      <div id="card">银行卡大小参照 85.6 × 53.98 mm</div>
+      <input type="range" id="ppm" min="180" max="900" value="430">
+      <div>当前 <b id="ppmVal">4.30</b> px/mm　显示区画成 <b id='dispMm'>12.7 × 10.8</b> mm</div>
+    </div>
+    </aside>
+
+    <main class="main">
+  <div class="stage"><canvas id="view"></canvas></div>
+  <div class="hint" style="margin:-8px 0 10px">左键拖动＝自由旋转（全程无死角）　滚轮＝缩放，下方比例同步　双击＝复位</div>
+  <div class="hud">
+    <span id="segName">—</span>
+    <span class="t" id="clock">0.00 / 0.00 s</span>
+  </div>
+      <div class="bar">
+    <div class="seg" id="modeSeg" style="margin-bottom:14px">
+      <button data-mode="boot" class="on">开机自检彩蛋</button>
+      <button data-mode="battery">电量显示（调试）</button>
+      <button data-mode="low">低电量文案（调试）</button>
+      <button data-mode="crit">极低电量文案（调试）</button>
+      <button data-mode="rain">代码雨 + 文字（主内容）</button>
+      <button data-mode="bt">蓝牙连接（测试）</button>
+    </div>
+    <div id="bootCtl" style="border-top:1px dashed var(--line);margin-top:14px;padding-top:14px">
+      <div class="seg" style="margin-bottom:10px">
+        <button id="play" class="on">暂停</button>
+        <button id="restart">重播</button>
+      </div>
+      <div class="grid">
+        <div class="row" style="margin-top:0">
+          <div class="lab"><span>播放进度</span><b id="scrubVal">0.00s</b></div>
+          <input type="range" id="scrub" min="0" max="1000" value="0">
+        </div>
+        <div class="row" style="margin-top:0">
+          <div class="lab"><span>整体节奏（越大越慢）</span><b id="speedVal">1.40×</b></div>
+          <input type="range" id="speed" min="70" max="300" value="140">
+        </div>
+        <div class="row" style="margin-top:0">
+          <div class="lab"><span>滚屏速度</span><b id="scrollVal">80 ms/行</b></div>
+          <input type="range" id="scrollms" min="60" max="280" value="80">
+        </div>
+        <div class="row" style="margin-top:0">
+          <div class="lab"><span>打字速度（越大越快）</span><b id="typeVal">1.00×</b></div>
+          <input type="range" id="typescale" min="50" max="200" value="100">
+        </div>
+      </div>
+      <div class="lab" style="margin-top:10px"><span>塌缩效果（第二幕 · 切换后停在原地，可直接对比）</span></div>
+      <div class="seg" id="collSeg">
+        <button data-col="0">原 · 向心吸</button>
+        <button data-col="1" class="on">甲 · 关机式</button>
+        <button data-col="2">乙 · 数据删除</button>
+        <button data-col="3">丙 · 像素解体</button>
+        <span class="grow"></span>
+        <button id="jumpColl">跳到该段</button>
+      </div>
+      <div class="hint" id="collInfo"></div>
+    </div><!-- /bootCtl -->
+    <div id="btCtl" style="display:none;border-top:1px dashed var(--line);margin-top:14px;padding-top:14px">
+      <div class="lab" style="margin-bottom:8px"><span>动画版本</span></div>
+      <div class="seg" style="margin-bottom:12px" id="btVerSeg">
+        <button data-btv="1" class="on">v1 · 数字雨冲刷</button>
+        <button data-btv="2">v2 · 一笔画</button>
+      </div>
+      <div class="lab" style="margin-bottom:8px"><span>敲击模拟（敲满 6 次开启蓝牙）</span><b id="btTapVal">0 / 6</b></div>
+      <div class="seg" style="margin-bottom:12px">
+        <button id="btTap1">敲 1 次</button>
+        <button id="btTap6">一键敲 6 次</button>
+        <button id="btReset">清零</button>
+      </div>
+      <div class="lab" style="margin-bottom:8px"><span>连接状态模拟</span></div>
+      <div class="seg" style="margin-bottom:12px">
+        <button id="btConnect">App 连上</button>
+        <button id="btDrop">App 断开</button>
+        <button id="btPlug">插线：关</button>
+      </div>
+      <div class="row" style="margin-top:0">
+        <div class="lab"><span>广播等待时长（真机 3 分钟，此处压缩）</span><b id="btWaitVal">3.0 s</b></div>
+        <input type="range" id="btWait" min="10" max="80" value="30">
+      </div>
+      <div class="row" style="margin-top:0">
+        <div class="lab"><span>符号显示时长（真机 3 秒后熄屏）</span><b id="btShowVal">3.0 s</b></div>
+        <input type="range" id="btShowDur" min="10" max="100" value="30">
+      </div>
+      <div class="hint" id="btInfo">—</div>
+    </div><!-- /btCtl -->
+    <div id="batCtl" style="display:none;border-top:1px dashed var(--line);margin-top:14px;padding-top:14px">
+      <div class="row" style="margin-top:0">
+        <div class="lab"><span>剩余电量（拖动测试）</span><b id="batVal">78%</b></div>
+        <input type="range" id="batLevel" min="0" max="100" value="78">
+      </div>
+      <div class="row">
+        <div class="lab"><span>掉电速率</span><b id="batRateVal">1.0 %/秒</b></div>
+        <input type="range" id="batRate" min="1" max="200" value="10">
+      </div>
+      <div class="row">
+        <div class="lab"><span>显示时长（到点自动熄灭，真机是 3 秒）</span><b id="batDurVal">3.0 秒</b></div>
+        <input type="range" id="batDur" min="10" max="100" value="30">
+      </div>
+      <div class="seg">
+        <button id="batAuto">自动掉电：关</button>
+        <button id="batEmpty" class="on">显示空格</button>
+        <button id="batLoop" class="on">循环</button>
+        <button id="batReplay">重播入场</button>
+      </div>
+      <div class="hint">100 格 = 10 × 10。<b>剩余多少电量就亮多少格</b>，最后一格闪烁；电量下降时格数自动减少。<br>
+        真机触发方式：连续敲击 4 次。<span style="color:#6b7a72">Python 出片还没做这段，先在模拟器里调。</span></div>
+    </div><!-- /batCtl -->
+    <div id="lowCtl" style="display:none;border-top:1px dashed var(--line);margin-top:14px;padding-top:14px">
+      <div class="row" style="margin-top:0">
+        <div class="lab"><span>剩余电量（低于 20% 才触发本效果）</span><b id="lowVal">12%</b></div>
+        <input type="range" id="lowLevel" min="0" max="100" value="12">
+      </div>
+      <div class="lab"><span>文案（每行一句，最多 5 行、每行 14 字符）</span></div>
+      <textarea id="lowText" rows="3"></textarea>
+      <div class="seg" style="margin-top:9px">
+        <button data-low="0">甲</button>
+        <button data-low="1">乙</button>
+        <button data-low="2">丙</button>
+        <button data-low="3">辰</button>
+        <button data-low="4" class="on">酉</button>
+        <span class="grow"></span>
+        <button id="lowLoop" class="on">循环</button>
+        <button id="lowReplay">重播</button>
+      </div>
+      <div class="lab" style="margin-top:9px"><span>字号（独立于全局字号，彩蛋不受影响）</span><b id="lowFsVal">20 px</b></div>
+      <div class="seg" id="lowFontSeg">
+        <button data-lfs="16">16</button>
+        <button data-lfs="20" class="on">20</button>
+      </div>
+      <div class="hint" id="lowFit"></div>
+      <div class="hint">
+        真机流程：电量 &lt; 20% 时<b>连续敲击 4 次</b> → 电量格显示 <b>1.5 秒</b> → 格子从末尾逐格熄灭 → 黑屏 0.2 秒 → 文字逐字敲出（上下居中、靠左）→ 停留 2 秒。<br>
+        面板里的文案可以直接改，改完立刻生效。预设 甲/乙/丙 三套供选。
+      </div>
+    </div><!-- /lowCtl -->
+    <div id="critCtl" style="display:none;border-top:1px dashed var(--line);margin-top:14px;padding-top:14px">
+      <div class="row" style="margin-top:0">
+        <div class="lab"><span>剩余电量（极低电量区，具体阈值待实测）</span><b id="critVal">2%</b></div>
+        <input type="range" id="critLevel" min="0" max="10" value="2">
+      </div>
+      <div class="lab"><span>文案（只有一条，每次敲击显示同一句；每行一句话）</span></div>
+      <textarea id="critText" rows="2"></textarea>
+      <div class="seg" style="margin-top:9px">
+        <button data-crit="0" class="on">bye, world.</button>
+        <button data-crit="1">still here.</button>
+        <button data-crit="2">almost done.</button>
+      </div>
+      <div class="lab" style="margin-top:9px"><span>字号（文案短，可以用大字号）</span><b id="critFsVal">32 px</b></div>
+      <div class="seg" id="critFontSeg">
+        <button data-cfs="20">20</button>
+        <button data-cfs="24">24</button>
+        <button data-cfs="28">28</button>
+        <button data-cfs="32" class="on">32</button>
+        <span class="grow"></span>
+        <button id="critEmpty" class="on">空格子</button>
+        <button id="critLoop" class="on">循环</button>
+        <button id="critReplay">重播</button>
+      </div>
+      <div class="hint" id="critWarn"></div>
+      <div class="hint">
+        <b>和低电量（&lt;20%）的区别</b>：低电量是敲击后说一段递减的话；<br>
+        极低电量是<b>只剩几次主内容播放电量</b>时，敲击看电量会显示这<b>同一句</b>遗言（看电量是偶尔的事，不做递减，避免喧宾夺主）。<br>
+        流程同低电量：电量格 1.5 秒 → 逐格熄灭 → 黑屏 → 大字逐字敲出 → 停留。
+      </div>
+    </div><!-- /critCtl -->
+
+    <div id="rainCtl" style="display:none;border-top:1px dashed var(--line);margin-top:14px;padding-top:14px">
+      <div class="seg" style="margin-bottom:10px">
+        <button id="rainPlay" class="on">暂停</button>
+        <button id="rainReplay">重播</button>
+        <button id="rainLoop" class="on">循环</button>
+        <span class="grow"></span>
+        <button id="rainJump">跳到文字段</button>
+      </div>
+      <div class="grid">
+        <div class="row" style="margin-top:0">
+          <div class="lab"><span>下落速度（格/秒 · 各列同速）</span><b id="rsVal">8</b></div>
+          <input type="range" id="rainSpeed" min="1" max="24" value="8">
+        </div>
+        <div class="row" style="margin-top:0">
+          <div class="lab"><span>每列字符长度（尾迹，要 ≥ 单列可见数）</span><b id="rtVal">9</b></div>
+          <input type="range" id="rainTail" min="2" max="16" value="9">
+        </div>
+        <div class="row" style="margin-top:0">
+          <div class="lab"><span>字符闪变速度（次/秒）</span><b id="rmVal">4</b></div>
+          <input type="range" id="rainMut" min="0" max="20" value="4">
+        </div>
+        <div class="row" style="margin-top:0">
+          <div class="lab"><span>错落强度（各列起始高度差）</span><b id="rjVal">1.0</b></div>
+          <input type="range" id="rainJitter" min="0" max="30" value="10">
+        </div>
+      </div>
+      <div class="lab" style="margin-top:8px"><span>列数（6 列 × 24px ≈ 150px 铺满屏宽）</span><b id="rcVal">6 列</b></div>
+      <div class="seg" id="rainColSeg">
+        <button data-rc="4">4</button>
+        <button data-rc="6" class="on">6</button>
+        <button data-rc="8">8</button>
+        <button data-rc="12">12</button>
+      </div>
+      <div class="row" style="margin-top:8px">
+        <div class="lab"><span>单列可见字符数（设备实测最多 7）</span><b id="rrVal">7</b></div>
+        <input type="range" id="rainRows" min="3" max="9" value="7">
+      </div>
+      <div class="lab" style="margin-top:8px"><span>雨的字号</span><b id="rfVal">18 px</b></div>
+      <div class="seg" id="rainFontSeg">
+        <button data-rf="14">14</button>
+        <button data-rf="16">16</button>
+        <button data-rf="18" class="on">18</button>
+        <button data-rf="20">20</button>
+        <button data-rf="24">24</button>
+      </div>
+      <div class="lab" style="margin-top:10px"><span>第二幕 · 文案（逐字敲出，大小写照参考图；内部参考待重新定稿）</span></div>
+      <textarea id="rainText2" rows="2"></textarea>
+      <div class="grid">
+        <div class="row" style="margin-top:8px">
+          <div class="lab"><span>敲字速度（毫秒/字，越小越快）</span><b id="rmsVal">120</b></div>
+          <input type="range" id="rainTypeMs" min="30" max="400" value="120">
+        </div>
+        <div class="row" style="margin-top:8px">
+          <div class="lab"><span>停留时长</span><b id="rhVal">2.5s</b></div>
+          <input type="range" id="rainHold" min="5" max="80" value="25">
+        </div>
+      </div>
+      <div class="lab" style="margin-top:8px"><span>第二幕字号</span><b id="rtfVal">28 px</b></div>
+      <div class="seg" id="rainTextFontSeg">
+        <button data-rtf="20">20</button>
+        <button data-rtf="24">24</button>
+        <button data-rtf="28" class="on">28</button>
+        <button data-rtf="32">32</button>
+        <span class="grow"></span>
+        <button id="rainCursor" class="on">光标</button>
+        <button id="rainFlash" class="on">落字提亮</button>
+      </div>
+      <div class="hint" id="rainInfo"></div>
+      <div class="hint">
+        雨段固定 <b>7.0 秒真实时间</b>，不受全局「整体节奏」影响 ✓<br>
+        领头字符 <b>薄荷偏白</b>（#D8FFE6）+ 荧光光晕，尾迹纯绿逐格变暗 ✓<br>
+        字符 = 日常全角片假名（含浊音/半浊音）✓ 各列起始高度不同、<b>速度相同</b> ✓
+      </div>
+    </div><!-- /rainCtl -->
+      </div>
+    </main>
+  </div>
+</div>
+
+<script src="vendor/three.min.js"></script>
+<script src="data/shell.js"></script>
+<script src="data/env.js"></script>
+<script>
+/* ============================================================
+   开机自检彩蛋 —— 3D 效果模拟器
+   时间轴与 render_boot_selftest.py 同源（同一份 phases 结构）；改时间轴请两边同步。
+   配色：出厂自带内容一律纯绿 #00ff00，只有爆闪是白。
+   ============================================================ */
+const W = 150, H = 128, R = 6;
+const GREEN = '#00ff00', WHITE = '#ffffff';
+let VISIBLE_ROWS = 5, LINE_H = 24, X0 = 4, Y0 = 4, FSIZE = 16, COLS = 14;
+let L3 = ['who are you?', 'why am i here?', 'you found me.'];
+const T1 = 'v = Voice()', T2A = 'v.', T2BAD = 'lokc', T2FIX = 'ck()', T3 = 'v.run()';
+const HELLO = 'hello world';
+const SCROLL = [
+  'core ... ok','clock ... ok','display ... ok','font ... ok','voice ... ok','memory ... ok',
+  'v.run()',                                /* 衔接：自检完成 → 开始运行（合法 Python 调用）*/
+  '01 hello world','02 hello world',
+  '03 who are you?',                        /* 藏在滚屏里的异常：5 行窗口里只停留一拍 */
+  '04 hello world','05 hello world'
+];
+
+/* ---- 机型几何（mm） ---- */
+const DISP_W = 10.89, DISP_H = 9.29, BORDER = 3.0, RC = 0.2;
+const FACE_W = DISP_W + BORDER * 2, FACE_H = DISP_H + BORDER * 2;    /* 16.89 × 15.29 */
+const BAND_VIS = 5.81;
+
+/* ---- 离屏画布：动画本体 ---- */
+const off = document.createElement('canvas');
+off.width = W * R; off.height = H * R;
+const g = off.getContext('2d');
+g.setTransform(R, 0, 0, R, 0, 0);
+g.textBaseline = 'alphabetic';
+const FONT = 'Menlo, "SF Mono", ui-monospace, monospace';
+let ADV = 0;
+function remeasure() {
+  g.font = FSIZE + 'px ' + FONT;
+  ADV = g.measureText('M').width;
+  COLS = Math.max(1, Math.floor((W - X0 - 1) / ADV + 1e-6));   /* 靠左排版只吃左留白 */
+}
+remeasure();
+
+function txt(s, size, x, y, color, bright) {
+  if (!s) return;
+  g.font = size + 'px ' + FONT;
+  if (bright !== undefined && bright < 0.999) {
+    const c = parseInt(color.slice(1), 16);
+    g.fillStyle = 'rgb(' + Math.round((c >> 16 & 255) * bright) + ',' +
+      Math.round((c >> 8 & 255) * bright) + ',' + Math.round((c & 255) * bright) + ')';
+  } else g.fillStyle = color;
+  g.fillText(s, x, y + size);            /* baseline = 字格顶 + 字号，与 PIL 版对齐 */
+}
+function cursor(x, y, color) { g.fillStyle = color || GREEN; g.fillRect(x, y + 3, 8, 16); }
+
+/* ---- 时间轴（与 Python build_phases 同一份） ---- */
+function buildTimeline(o) {
+  const ts = o.typeScale, ss = o.scrollMs / 1000;
+  const P = []; let t = 0, committed = [];
+  const push = (p, dur) => {
+    P.push(Object.assign({}, p, { t0: t, t1: t + dur, dur: dur, committed: committed.slice() }));
+    t += dur;
+  };
+  push({ k: 'wait' }, 0.30);
+  push({ k: 'type', txt: T1, base: '' }, 0.45 / ts); committed = [T1];
+  push({ k: 'type', txt: T2A, base: '' }, 0.20 / ts);
+  push({ k: 'type', txt: T2A, base: T2A, hold: 1 }, 0.50);
+  push({ k: 'type', txt: T2A + T2BAD, base: T2A }, 0.10 / ts);
+  push({ k: 'type', txt: T2A + T2BAD, base: T2A + T2BAD, hold: 1 }, 0.30);
+  push({ k: 'back', a: T2A + T2BAD, b: T2A }, 0.20);
+  push({ k: 'type', txt: T2A + T2FIX, base: T2A }, 0.30 / ts);
+  push({ k: 'type', txt: T2A + T2FIX, base: T2A + T2FIX, hold: 1 }, 0.20);
+  committed = [T1, T2A + T2FIX];
+  push({ k: 'type', txt: T3, base: '' }, 0.15 / ts);
+  push({ k: 'type', txt: T3, base: T3, hold: 1 }, 0.15);
+  committed = [T1, T2A + T2FIX, T3, ''];
+  push({ k: 'scroll' }, SCROLL.length * ss);
+  push({ k: 'hello' }, 0.30);
+  push({ k: 'idle' }, 0.65);
+  push({ k: 'glitch' }, 0.45);
+  push({ k: 'collapse' }, COLLAPSE_DUR[collapseMode]);
+  push({ k: 'flash' }, 0.35);
+  push({ k: 'dark' }, 0.25);
+  push({ k: 'cursor3' }, 0.50);
+  push({ k: 'type3', li: 0, prev: 0 }, 0.70 / ts);
+  push({ k: 'hold3', li: 0, prev: 1 }, 0.35);
+  push({ k: 'type3', li: 1, prev: 1 }, 0.70 / ts);
+  push({ k: 'hold3', li: 1, prev: 2 }, 0.45);
+  push({ k: 'type3', li: 2, prev: 2 }, 0.70 / ts);
+  push({ k: 'fear3', prev: 3 }, 0.45);
+  push({ k: 'erase3', prev: 3 }, 0.30);
+  push({ k: 'end3' }, 0.45);              /* 光标闪一下灭掉，停在黑屏 —— 全片结尾 */
+  return { P: P, total: t };
+}
+
+/* ---- 数字雨（占位） ---- */
+const KANA = 'ァィゥェォカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヲン';
+function Rain() {
+  this.gap = 15; this.step = 19;
+  this.cols = [];
+  for (let c = 0; c * this.gap < W; c++) this.cols.push(this.mk(-20 + Math.random() * (H + 20)));
+}
+Rain.prototype.mk = function (y) {
+  return { y: y === undefined ? -Math.random() * 30 : y, sp: 42 + Math.random() * 36,
+           tr: 4 + Math.floor(Math.random() * 3),
+           ch: Array.from({ length: 8 }, () => KANA[Math.floor(Math.random() * KANA.length)]) };
+};
+Rain.prototype.draw = function (dt) {
+  const self = this;
+  this.cols.forEach((s, c) => {
+    s.y += s.sp * dt;
+    if (s.y - s.tr * self.step > H) Object.assign(s, self.mk());
+    for (let k = 0; k < s.tr; k++) {
+      const y = s.y - k * self.step;
+      if (y <= -FSIZE || y >= H) continue;
+      txt(s.ch[k % s.ch.length], FSIZE, c * self.gap, y, GREEN,
+          k === 0 ? 1 : Math.max(0.10, 0.82 - 0.18 * k));
+    }
+  });
+};
+
+/* ---- 终端窗口 ---- */
+function termWindow(committed, live) {
+  let rows = committed.slice();
+  if (live !== null && live !== undefined) rows.push(live);
+  return rows.slice(-VISIBLE_ROWS);
+}
+function drawTerminal(committed, live, bright) {
+  const rows = termWindow(committed, live);
+  rows.forEach((s, i) => {
+    const isLive = live !== null && live !== undefined && i === rows.length - 1;
+    txt(s, FSIZE, X0, Y0 + i * LINE_H, GREEN, isLive ? (bright || 1) : 1);
+  });
+}
+function termChars(committed, live) {
+  const rows = termWindow(committed, live), out = [];
+  rows.forEach((s, i) => {
+    const y = Y0 + i * LINE_H;
+    for (let j = 0; j < s.length; j++) if (s[j] !== ' ') out.push([s[j], X0 + j * ADV, y]);
+  });
+  return out;
+}
+function termCursor(committed, live) {
+  const rows = termWindow(committed, live);
+  if (live !== null && live !== undefined) return [X0 + live.length * ADV, Y0 + (rows.length - 1) * LINE_H];
+  return [X0, Y0 + rows.length * LINE_H];
+}
+function a3Shown(T, i, p) {
+  const ph = T[i], prog = (p - ph.t0) / ph.dur, shown = [0, 0, 0];
+  if (ph.k === 'cursor3') return shown;
+  if (ph.k === 'type3') {
+    if (ph.prev === 1) shown[0] = L3[0].length;
+    if (ph.prev === 2) { shown[0] = L3[0].length; shown[1] = L3[1].length; }
+    shown[ph.li] = Math.max(0, Math.min(L3[ph.li].length,
+      Math.round(prog * L3[ph.li].length * 1.15)));
+  } else if (ph.k === 'hold3') {
+    for (let k = 0; k < ph.prev; k++) shown[k] = L3[k].length;
+  } else {
+    for (let k = 0; k < 3; k++) shown[k] = L3[k].length;
+  }
+  return shown;
+}
+
+const POOL = '!@#$%^&*()_+-=[]{}|;:,.<>?/0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+const rain = new Rain();
+let act1Grid = null, act1RowLen = null, ambient = 0;
+
+/* 塌缩效果（第二幕）四个版本，时长不同 —— 甲的关机式需要更多时间摊开动作。
+   0 原（向心吸）／1 甲 关机式／2 乙 数据删除／3 丙 像素解体 */
+let collapseMode = 1;
+const COLLAPSE_DUR = [0.35, 1.35, 1.25, 0.95];
+
+function renderAnim(p, dt) {
+  g.setTransform(R, 0, 0, R, 0, 0);
+  g.fillStyle = '#000'; g.fillRect(0, 0, W, H);
+  g.textBaseline = 'alphabetic';
+  const T = TL.P;
+  let i = 0; while (i < T.length - 1 && p >= T[i].t1) i++;
+  const ph = T[i], prog = Math.max(0, Math.min(1, (p - ph.t0) / ph.dur));
+  const blink = Math.floor(p * 3.33) % 2 === 0;
+
+  switch (ph.k) {
+    case 'wait': {
+      drawTerminal(ph.committed, null);
+      const c = termCursor(ph.committed, null); if (blink) cursor(c[0], c[1]); break;
+    }
+    case 'type': {
+      const n = ph.hold ? ph.base.length
+        : ph.base.length + Math.round(prog * (ph.txt.length - ph.base.length));
+      const live = ph.txt.slice(0, n);
+      drawTerminal(ph.committed, live);
+      const c = termCursor(ph.committed, live); cursor(c[0], c[1]); break;
+    }
+    case 'back': {
+      const live = ph.a.slice(0, ph.a.length - Math.round(prog * (ph.a.length - ph.b.length)));
+      drawTerminal(ph.committed, live);
+      const c = termCursor(ph.committed, live); cursor(c[0], c[1]); break;
+    }
+    case 'scroll': {
+      const k = Math.min(SCROLL.length, 1 + Math.floor(prog * (SCROLL.length - 0.001)));
+      drawTerminal(ph.committed.concat(SCROLL.slice(0, k)), null); break;
+    }
+    case 'hello': drawTerminal(ph.committed.concat(SCROLL), HELLO, 0.10 + prog * 0.90); break;
+    case 'idle': {
+      const committed = ph.committed.concat(SCROLL);
+      drawTerminal(committed, HELLO, 1);
+      const c = termCursor(committed, HELLO); if (blink) cursor(c[0], c[1]); break;
+    }
+    case 'glitch': {
+      const shear = 5 * prog;
+      act1Grid.forEach(([ch, xx, yy]) => {
+        const row = Math.round((yy - Y0) / LINE_H);
+        const sh = shear * (row % 3 === 0 ? 1 : row % 3 === 1 ? -1 : 0);
+        const c = Math.random() < 0.34 * (0.5 + prog)
+          ? POOL[Math.floor(Math.random() * POOL.length)] : ch;
+        txt(c, FSIZE, xx + sh, yy, GREEN);
+      });
+      break;
+    }
+    case 'collapse': {
+      const cx = W / 2, cy = H / 2;
+      if (collapseMode === 1) {
+        /* 甲 · 关机式：抖动 → 压扁 → 压成一条亮线 → 收成一个亮点。
+           关键：全程字形不变形（原版的向心吸会把字拉成放射长条，一看就露馅）。 */
+        const t = prog;
+        const js  = Math.min(1, t / 0.22);
+        const sq  = Math.max(0, Math.min(1, (t - 0.20) / 0.30));
+        const ln  = Math.max(0, Math.min(1, (t - 0.50) / 0.25));
+        const dot = Math.max(0, Math.min(1, (t - 0.75) / 0.25));
+        if (t < 0.52) {
+          const kv = 1 - 0.90 * sq, kh = 1 - 0.30 * sq;
+          act1Grid.forEach(([ch, xx, yy]) => {
+            const row = Math.round((yy - Y0) / LINE_H);
+            const jit = (Math.random() - 0.5) * 2 * js * 3.5 * (1 + (row % 3));
+            txt(ch, FSIZE, cx + (xx - cx) * kh + jit, cy + (yy - cy) * kv,
+                GREEN, Math.max(0.12, 1 - 0.75 * sq));
+          });
+        }
+        if (t >= 0.42) {                          /* 亮线：从整宽收到一点 */
+          const halfW = Math.max(1.2, (W / 2) * (1 - ln) * (1 - dot) + 2 * (1 - dot));
+          const h = Math.max(1, 3.4 * (1 - 0.5 * ln) * (1 - dot) + 1);
+          const gl = g.createLinearGradient(cx - halfW, 0, cx + halfW, 0);
+          gl.addColorStop(0, 'rgba(0,255,0,0)');
+          gl.addColorStop(0.5, 'rgba(0,255,0,1)');
+          gl.addColorStop(1, 'rgba(0,255,0,0)');
+          g.fillStyle = gl; g.fillRect(cx - halfW, cy - h / 2, halfW * 2, h);
+        }
+        if (dot > 0) {                            /* 只剩一点微光 */
+          const r = Math.max(2, 7 * (1 - dot));
+          const gr = g.createRadialGradient(cx, cy, 0, cx, cy, r * 3);
+          gr.addColorStop(0, 'rgba(170,255,170,1)');
+          gr.addColorStop(0.35, 'rgba(0,255,0,0.8)');
+          gr.addColorStop(1, 'rgba(0,255,0,0)');
+          g.fillStyle = gr; g.fillRect(cx - r * 3, cy - r * 3, r * 6, r * 6);
+        }
+      } else if (collapseMode === 2) {
+        /* 乙 · 数据删除式：每行从右往左被擦掉，各行速度不同步（有的先死有的后死）；
+           全部擦完后只剩左上角一个孤零零的光标 —— 字形零变形。 */
+        if (!act1RowLen) {
+          act1RowLen = {};
+          act1Grid.forEach(([ch, xx, yy]) => {
+            const row = Math.round((yy - Y0) / LINE_H);
+            const ci  = Math.round((xx - X0) / ADV);
+            act1RowLen[row] = Math.max(act1RowLen[row] || 0, ci + 1);
+          });
+        }
+        const t = prog / 0.80;
+        let alive = 0;
+        act1Grid.forEach(([ch, xx, yy]) => {
+          const row = Math.round((yy - Y0) / LINE_H);
+          const ci  = Math.round((xx - X0) / ADV);
+          const n   = act1RowLen[row] || 1;
+          const per = 0.50 + 0.50 * (((row * 37) % 7) / 7);
+          const q   = Math.max(0, Math.min(1, (t - (1 - per) * 0.45) / per));
+          if (ci < n * (1 - q)) { alive++; txt(ch, FSIZE, xx, yy, GREEN); }
+        });
+        if (alive === 0 && Math.floor(t * 3.33) % 2 === 0) cursor(X0, Y0, GREEN);
+      } else if (collapseMode === 3) {
+        /* 丙 · 像素解体式：画面按 10×8 方块碎掉，方块随机熄灭并略微下坠 */
+        const BW = 10, BH = 8, BX = W / BW, BY = H / BH;
+        const t = prog / 0.85;
+        act1Grid.forEach(([ch, xx, yy]) => {
+          const bx = Math.min(BW - 1, Math.floor(xx / BX));
+          const by = Math.min(BH - 1, Math.floor(yy / BY));
+          const rnd = (((bx * 73856093) ^ (by * 19349663)) >>> 0) % 1000 / 1000;
+          const q = Math.max(0, Math.min(1, (t - rnd * 0.7) / 0.30));
+          if (q >= 1) return;
+          txt(ch, FSIZE, xx, yy + q * 3 * rnd, GREEN, 1 - q);
+        });
+      } else {
+        /* 原 · 向心吸（保留供对照） */
+        const maxd = Math.hypot(cx, cy);
+        const q = Math.min(1, prog / 0.82);
+        act1Grid.forEach(([ch, xx, yy]) => {
+          const delay = 0.30 * (Math.hypot(xx - cx, yy - cy) / maxd);
+          const local = Math.max(0, Math.min(1, (q - delay) / Math.max(0.05, 1 - delay)));
+          const e = Math.pow(local, 1.5), b = 0.55 + 0.45 * local;
+          for (let k = 3; k >= 1; k--) {
+            const gg = Math.max(0, e - 0.055 * k);
+            txt(ch, FSIZE, xx + (cx - xx) * gg, yy + (cy - yy) * gg, GREEN, b * (0.30 - 0.07 * k));
+          }
+          txt(ch, FSIZE, xx + (cx - xx) * e, yy + (cy - yy) * e, GREEN, Math.min(1, b));
+        });
+        if (q > 0.6) {
+          const r = 1 + 2 * (q - 0.6) / 0.4;
+          const gr = g.createRadialGradient(cx, cy, 0, cx, cy, r);
+          gr.addColorStop(0, 'rgba(0,255,0,1)');
+          gr.addColorStop(1, 'rgba(0,255,0,0)');
+          g.fillStyle = gr; g.fillRect(cx - r, cy - r, r * 2, r * 2);
+        }
+      }
+      break;
+    }
+    case 'flash': g.fillStyle = WHITE; g.fillRect(0, 0, W, H); break;
+    case 'dark': break;
+    case 'cursor3': if (blink) cursor(X0, Y0, GREEN); break;
+    case 'type3': case 'hold3': case 'fear3': case 'erase3': {
+      const shown = a3Shown(T, i, p);
+      let total = 0; L3.forEach(s => total += s.length);
+      const left = ph.k === 'erase3' ? Math.round(total * (1 - prog)) : null;
+      let idx = 0;
+      L3.forEach((s, li) => {
+        for (let ci = 0; ci < shown[li]; ci++) {
+          if (left === null || idx < left)
+            txt(s[ci], FSIZE, X0 + ci * ADV, Y0 + li * LINE_H, GREEN);
+          idx++;
+        }
+      });
+      if (ph.k === 'type3' || ph.k === 'hold3') {
+        if (ph.k === 'type3' || blink)
+          cursor(X0 + shown[ph.li] * ADV, Y0 + ph.li * LINE_H, GREEN);
+      }
+      break;
+    }
+    case 'end3': if (blink && prog < 0.66) cursor(X0, Y0, GREEN); break;
+    case 'silence': break;
+    case 'rain': rain.draw(dt); break;
+  }
+  if (ambient > 0) { g.fillStyle = 'rgba(190,196,192,' + ambient + ')'; g.fillRect(0, 0, W, H); }
+}
+
+/* ============================================================
+   电量显示（调试）—— 把显示区切成 100 个格子
+   真机触发：连续敲击 4 次，显示 3 秒后自动熄灭。
+   剩余多少电量就亮多少格；末尾格闪烁；掉电自动减少格数。
+   ============================================================ */
+const BAT_N = 100, BAT_COLS = 10, BAT_CW = 12, BAT_CH = 10, BAT_GAP = 2;
+const BAT_X0 = (W - (BAT_COLS * BAT_CW + (BAT_COLS - 1) * BAT_GAP)) / 2;
+const BAT_Y0 = (H - (BAT_COLS * BAT_CH + (BAT_COLS - 1) * BAT_GAP)) / 2;
+const BAT_INTRO_PER = 0.010;        /* 入场时每格亮起的间隔（秒） */
+
+/* 低电量流程的时间轴（秒） */
+const LOW_SHOW = 1.50;              /* 电量格显示 1.5 秒 */
+const LOW_DIM  = 0.35;              /* 格子从末尾逐格熄灭 */
+const LOW_GAP  = 0.20;              /* 黑屏停顿 */
+const LOW_PER  = 0.70;              /* 每行打字时长 */
+const LOW_HOLD = 2.00;              /* 打字完停留 */
+
+let mode = 'boot';
+let batLevel = 78, batAuto = false, batRate = 1.0, batShowEmpty = true;
+let batDur = 3.0, batLoopOn = true;
+let batT = 0, batIntroOn = true, batIntroT = 0;
+
+let lowLevel = 12, lowLoopOn = true, lowT = 0, lowPreset = 4;   /* 默认酉 */
+let LOW_PRESETS = [
+  ['running low.', 'i can feel it.', 'getting dark.'],  /* 甲 */
+  ['running low.', 'am i dying?'],                      /* 乙 */
+  ['so this is', 'how it ends.'],                       /* 丙 */
+  ['i can\u0027t see.', 'am i dying?'],                 /* 辰 */
+  ['i\u0027m low.', 'will i wake?']                      /* 酉 ← 默认 */
+];
+let lowLines = LOW_PRESETS[lowPreset].slice();
+
+/* 低电量要自己的字号：彩蛋的代码行最长 15 字符、只有 16px 放得下，
+   所以全局字号不能为低电量放大。这里独立一套版面常数。 */
+let lowFont = 20, lowLH = 30, lowX0 = 5, lowADV = 12, lowCOLS = 11;
+function lowMeasure() {
+  lowLH  = Math.round(lowFont * 1.5);
+  lowX0  = Math.max(2, Math.round(lowFont / 4));
+  g.font = lowFont + 'px ' + FONT;
+  lowADV = g.measureText('M').width;
+  lowCOLS = Math.max(1, Math.floor((W - lowX0 - 1) / lowADV));   /* 靠左排版只吃左留白 */
+}
+lowMeasure();
+function lowCursor(px, py) {
+  g.fillStyle = GREEN;
+  g.fillRect(px, py + Math.round(lowFont * 0.19), Math.round(lowFont * 0.5), lowFont);
+}
+
+/* 画 10×10 格子：shown = 画到第几格，lastBlink = null 不闪 / true 亮 / false 暗 */
+function batGrid(lit, shown, lastBlink, showEmpty) {
+  const se = (showEmpty === undefined) ? batShowEmpty : showEmpty;   /* 不传＝沿用全局开关 */
+  for (let i = 0; i < BAT_N; i++) {
+    let b = 0;
+    if (i < shown) b = (lastBlink !== null && i === lit - 1) ? (lastBlink ? 1 : 0.16) : 1;
+    else if (se) b = 0.13;
+    if (b <= 0) continue;
+    const c = i % BAT_COLS, r = (i / BAT_COLS) | 0;
+    g.fillStyle = 'rgba(0,255,0,' + b.toFixed(3) + ')';
+    rrect(g, BAT_X0 + c * (BAT_CW + BAT_GAP), BAT_Y0 + r * (BAT_CH + BAT_GAP), BAT_CW, BAT_CH, 1.4);
+    g.fill();
+  }
+}
+
+function fog() {                     /* 环境光叠加，两个模式共用 */
+  if (ambient > 0) { g.fillStyle = 'rgba(190,196,192,' + ambient + ')'; g.fillRect(0, 0, W, H); }
+}
+
+function renderBattery(t, dt) {
+  g.setTransform(R, 0, 0, R, 0, 0);
+  g.fillStyle = '#000'; g.fillRect(0, 0, W, H);
+  g.textBaseline = 'alphabetic';
+
+  if (batAuto) {                                   /* 自动掉电 → 格数自己减少 */
+    batLevel = Math.max(0, batLevel - batRate * dt);
+    if (batLevel <= 0) batAuto = false;
+  }
+  const lit = Math.max(0, Math.min(BAT_N, Math.round(batLevel)));
+  if (batDur > 0 && t > batDur) { fog(); return; } /* 到点自动熄灭（真机 3 秒） */
+
+  if (batIntroOn) {                                /* 入场：格子按顺序依次亮起 */
+    batIntroT += dt;
+    if (batIntroT >= lit * BAT_INTRO_PER + 0.25) batIntroOn = false;
+  }
+  const shown = batIntroOn ? Math.min(lit, Math.floor(batIntroT / BAT_INTRO_PER) + 1) : lit;
+  const blink = Math.floor(t * 3) % 2 === 0;       /* 末尾格约 1.5Hz */
+  batGrid(lit, shown, batIntroOn ? null : blink);
+  fog();
+}
+
+/* 低电量流程：电量格 3 秒 → 逐格熄灭 → 黑屏 → 逐字敲出 → 停留 */
+function lowTotal() { return LOW_SHOW + LOW_DIM + LOW_GAP + lowLines.length * LOW_PER + LOW_HOLD; }
+
+function renderLow(t, dt) {
+  g.setTransform(R, 0, 0, R, 0, 0);
+  g.fillStyle = '#000'; g.fillRect(0, 0, W, H);
+  g.textBaseline = 'alphabetic';
+  const n = lowLines.length;
+  const t1 = LOW_SHOW, t2 = t1 + LOW_DIM, t3 = t2 + LOW_GAP, t4 = t3 + n * LOW_PER;
+  const lit = Math.max(0, Math.min(BAT_N, Math.round(lowLevel)));
+  /* 文字块在显示区里上下居中；行位置按总行数一次算定，打字过程中不跳动 */
+  const lowTop = (H - ((n - 1) * lowLH + lowFont)) / 2;
+
+  if (t < t1) {                                     /* 1) 电量格显示 3 秒 */
+    batGrid(lit, lit, Math.floor(t * 3) % 2 === 0);
+  } else if (t < t2) {                              /* 2) 从末尾逐格熄灭 */
+    const p = (t - t1) / LOW_DIM;
+    batGrid(lit, Math.max(0, lit - Math.round(p * lit)), null);
+  } else if (t < t3) {                              /* 3) 黑屏停顿 */
+    /* nothing */
+  } else if (t < t4) {                              /* 4) 逐行逐字敲出 */
+    const acc = (t - t3) / LOW_PER;
+    const full = Math.floor(acc), frac = acc - full;
+    for (let li = 0; li < n; li++) {
+      let c = 0;
+      if (li < full) c = lowLines[li].length;
+      else if (li === full) c = Math.max(1, Math.round(frac * lowLines[li].length * 1.15));
+      if (c > 0) txt(lowLines[li].slice(0, c), lowFont, lowX0, lowTop + li * lowLH, GREEN);
+    }
+    if (full < n) {
+      const c = Math.max(1, Math.round(frac * lowLines[full].length * 1.15));
+      lowCursor(lowX0 + c * lowADV, lowTop + full * lowLH);
+    }
+  } else {                                          /* 5) 停留，光标在末尾闪 */
+    for (let li = 0; li < n; li++) txt(lowLines[li], lowFont, lowX0, lowTop + li * lowLH, GREEN);
+    if (Math.floor(t * 3) % 2 === 0)
+      lowCursor(lowX0 + lowLines[n - 1].length * lowADV, lowTop + (n - 1) * lowLH);
+  }
+  fog();
+}
+
+/* ============================================================
+   极低电量遗言（剩几次主内容播放电量时，敲击看电量 → 显示同一句）
+   ------------------------------------------------------------
+   与低电量流程同构，但有三点不同：
+     1. 文案只有一条 —— 看电量只是偶尔的事，做递减会喧宾夺主；
+     2. 字号独立可调（默认 32px 最大档）—— 文案只有两三个词，放得下大字号；
+     3. 文字块按该字号自己算行高与字距，不动全局版面常数。
+   流程：电量格 1.5s → 逐格熄灭 → 黑屏 0.2s → 逐字敲出 → 停留 2.5s
+   ============================================================ */
+const CRIT_SHOW = 1.50, CRIT_DIM = 0.35, CRIT_GAP = 0.20, CRIT_PER = 1.00, CRIT_HOLD = 2.50;
+
+let critLevel = 2, critT = 0, critPreset = 0, critLoopOn = true, critFont = 32;
+let critShowEmpty = true;   /* 电量格要不要画空格子：极低电量时只亮两格更触目 */
+const CRIT_PRESETS = [
+  ['bye,', 'world.'],        /* 甲：他选定的 */
+  ['still', 'here.'],        /* 乙 */
+  ['almost', 'done.']        /* 丙 */
+];
+let critLines = CRIT_PRESETS[0].slice();
+
+let critLH = Math.round(critFont * 1.5), critADV = 0, critX0 = 8;
+function critMeasure() {
+  critLH  = Math.round(critFont * 1.5);
+  critX0  = Math.max(2, Math.round(critFont / 4));
+  g.font  = critFont + 'px ' + FONT;
+  critADV = g.measureText('M').width;
+}
+function critCols() { return Math.max(1, Math.floor((W - critX0 * 2) / critADV)); }
+critMeasure();
+
+/* 该字号下的光标：16px 时是 8×16，按比例放大 */
+function critCursor(px, py) {
+  g.fillStyle = GREEN;
+  g.fillRect(px, py + Math.round(critFont * 0.19), Math.round(critFont * 0.5), critFont);
+}
+
+function critTotal() {
+  return CRIT_SHOW + CRIT_DIM + CRIT_GAP + critLines.length * CRIT_PER + CRIT_HOLD;
+}
+
+function renderCrit(t, dt) {
+  g.setTransform(R, 0, 0, R, 0, 0);
+  g.fillStyle = '#000'; g.fillRect(0, 0, W, H);
+  g.textBaseline = 'alphabetic';
+  const n = critLines.length;
+  const t1 = CRIT_SHOW, t2 = t1 + CRIT_DIM, t3 = t2 + CRIT_GAP, t4 = t3 + n * CRIT_PER;
+  const lit = Math.max(0, Math.min(BAT_N, Math.round(critLevel)));
+  /* 文字块上下居中，行位置一次算定，打字过程中不跳动 */
+  const critTop = (H - ((n - 1) * critLH + critFont)) / 2;
+
+  if (t < t1) {                                     /* ① 电量格（敲击看电量的第一反应） */
+    batGrid(lit, lit, Math.floor(t * 3) % 2 === 0, critShowEmpty);
+  } else if (t < t2) {                              /* ② 从末尾逐格熄灭 */
+    const p = (t - t1) / CRIT_DIM;
+    batGrid(lit, Math.max(0, lit - Math.round(p * lit)), null, critShowEmpty);
+  } else if (t < t3) {                              /* ③ 黑屏停顿 */
+    /* nothing */
+  } else if (t < t4) {                              /* ④ 大字逐字敲出 */
+    const acc = (t - t3) / CRIT_PER;
+    const full = Math.floor(acc), frac = acc - full;
+    for (let li = 0; li < n; li++) {
+      let c = 0;
+      if (li < full) c = critLines[li].length;
+      else if (li === full) c = Math.max(1, Math.round(frac * critLines[li].length * 1.15));
+      if (c > 0) txt(critLines[li].slice(0, c), critFont, critX0, critTop + li * critLH, GREEN);
+    }
+    if (full < n) {
+      const c = Math.max(1, Math.round(frac * critLines[full].length * 1.15));
+      critCursor(critX0 + c * critADV, critTop + full * critLH);
+    }
+  } else {                                          /* ⑤ 停留，光标在末尾闪 */
+    for (let li = 0; li < n; li++)
+      txt(critLines[li], critFont, critX0, critTop + li * critLH, GREEN);
+    if (Math.floor(t * 3) % 2 === 0)
+      critCursor(critX0 + critLines[n - 1].length * critADV, critTop + (n - 1) * critLH);
+  }
+  fog();
+}
+
+/* ============================================================
+   代码雨 + 文字（第五个模式 = 敲击 2 次后的主要显示内容）
+   ------------------------------------------------------------
+   为什么是 6 列：全角片假名在 Menlo 下字宽 = 英文的 1.661 倍，
+   24px 时单字 24.0px，6 列 × 25px = 150px 正好铺满屏宽 —— 就是"满屏数字雨"。
+   第 1 段 代码雨（固定真实 7 秒，不受全局节奏影响）：
+     各列起始高度不同、下落速度相同；字符随落随变；
+     领头字符薄荷偏白 + 荧光光晕，尾迹纯绿逐格变暗。
+   第 2 段 文字：逐字敲出 Wake up, / Neo...（大小写与参考图一比一）
+   ============================================================ */
+/* 日常打字的片假名（全角，包含浊音/半浊音） */
+/* 代码雨用的假名：只用五十音里的 46 个基本假名，
+   不含浊音/半浊音（ガ ザ ダ バ パ 那一整批）—— 出厂内容从这 46 个里随机。
+   名字带 _RAIN 后缀：文件里原有一个给旧数字雨占位用的 KANA，重名会让整段 JS 报错。 */
+const KANA_RAIN = 'アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヲン';
+function kanaRand() { return KANA_RAIN[Math.floor(Math.random() * KANA_RAIN.length)]; }
+
+const RAIN_SEC = 7.0;        /* 雨段固定 7 秒（真实时间） */
+const RAIN_FADE = 0.5;       /* 收尾淡出 */
+const RAIN_GAP = 0.35;       /* 空白一拍 */
+let RAIN_TEXT = ['Wake up,', 'Neo...'];     /* 内部参考文案，待重新定稿（面板可改） */
+
+let rainCols = 6, rainSpeed = 8, rainTail = 9, rainMut = 4, rainJitter = 1.0;
+let rainFont = 18, rainTextFont = 28, rainTypeMs = 120, rainHold = 2.5;
+/* 单列可见字符数：你在设备上实测最多能看到 7 个 → 行高 = 128 / 7 ≈ 18.3px。
+   注意几何关系：全角假名是方块字，18px 方块横排每行能放 150/18 ≈ 8 列；
+   要"6 列 × 25px 宽"和"7 行 × 18px 高"同时成立是做不到的（字会变扁或列会重叠）。 */
+let rainRows = 7;
+let rainCursorOn = true, rainFlashOn = true, rainLoopOn = true;
+let rainT = 0, rainStreams = null;
+
+function rainCell() { return W / rainCols; }        /* 每列的水平间距 */
+function rainLH()   { return H / rainRows; }        /* 行高由"单列可见字符数"决定 */
+/* 全角片假名的真实字宽：必须实测。
+   不要用 rainFont × 1.661 —— 1.661 是"相对英文 M 字距"的倍数（M 字距 ≈ 0.6×字号），
+   乘字号会算成 1.66 倍宽，导致第一列半个字跑到屏幕外。 */
+function rainGlyphW() {
+  g.font = rainFont + 'px ' + FONT;
+  return Math.max(1, g.measureText(KANA_RAIN[0]).width);
+}
+
+/* 一列从屏幕上方落到下方的总行数（+ 尾迹 + 余量）：循环长度 */
+function rainSpan() { return Math.ceil(H / rainLH()) + rainTail + 2; }
+
+function rainReset() {
+  rainStreams = [];
+  const span = rainSpan();
+  for (let i = 0; i < rainCols; i++) {
+    const st = { x: rainCell() * (i + 0.5), ch: [] };
+    /* 起始高度在【整条循环长度】上随机散开 —— 原来只散开 8 行，
+       而屏幕只看得到 4.4 行，所以好几列挤在同一高度、看着像重叠的同一份内容。 */
+    st.y0 = -Math.random() * rainJitter * span - 1;
+    /* 每列各自的闪变速率（±30%），避免六列同步变化 */
+    st.mutK = 0.7 + Math.random() * 0.6;
+    for (let k = 0; k < rainTail; k++) st.ch.push(kanaRand());
+    rainStreams.push(st);
+  }
+}
+
+/* 字符闪变：按 rainMut 次/秒的节奏给每个格子重新掷字符（和位置解耦，可单独调） */
+let rainNextMut = 0;
+function rainMutate(dt, now) {
+  if (dt <= 0) return;
+  rainStreams.forEach(st => {
+    const p = Math.min(1, rainMut * (st.mutK || 1) * dt);   /* 每列各自的闪变速率 */
+    for (let k = 0; k < st.ch.length; k++)
+      if (Math.random() < p) st.ch[k] = kanaRand();
+  });
+}
+
+function rainTypedTotal() {
+  let n = 0; RAIN_TEXT.forEach(s => n += s.length);
+  return n * rainTypeMs / 1000;
+}
+function rainTotal() {
+  return RAIN_SEC + RAIN_FADE + RAIN_GAP + rainTypedTotal() + rainHold;
+}
+
+function renderRain(t, dt) {
+  g.setTransform(R, 0, 0, R, 0, 0);
+  g.fillStyle = '#000'; g.fillRect(0, 0, W, H);
+  g.textBaseline = 'alphabetic';
+  const cell = rainCell(), lh = rainLH(), fw = rainGlyphW();       /* 全角字实际宽度（实测） */
+
+  if (t < RAIN_SEC + RAIN_FADE) {
+    /* ---------- 第 1 段：代码雨 ---------- */
+    const fade = t <= RAIN_SEC ? 1 : Math.max(0, 1 - (t - RAIN_SEC) / RAIN_FADE);
+    if (!rainStreams) rainReset();
+    rainMutate(dt, t);
+    /* 一列从屏幕上方落到下方的总行数（+尾迹+余量），落到底就循环回顶部，
+       否则几秒后所有雨柱都跑到屏幕下方，画面变全黑。 */
+    const span = rainSpan();
+    rainStreams.forEach(st => {
+      /* 头部位置 = 起始高度 + 速度 × 时间（再对循环长度取模）
+         → 与播放进度严格对应，重播/跳转都准；各列因 y0 不同而错落 */
+      let head = Math.floor(st.y0 + rainSpeed * t) % span;
+      if (head < 0) head += span;
+      head -= rainTail;                       /* 让雨柱从屏幕上方进入 */
+      for (let j = 0; j < rainTail; j++) {
+        const y = (head - j) * lh;
+        if (y < -lh || y > H) continue;
+        /* 防裁：把字形夹在屏内，字号调大时最左/最右一列也不会被切掉一半 */
+        const gx = Math.max(0, Math.min(W - fw, st.x - fw / 2));
+        if (j === 0) {
+          /* 领头字符：薄荷偏白 + 荧光。
+             用 shadowBlur（光晕跟着字形轮廓走）而不是径向渐变 ——
+             径向渐变画出来必然是个圆，在屏上就是一团"白圈"。 */
+          g.save();
+          g.shadowColor = 'rgba(180,255,210,' + (0.75 * fade) + ')';
+          g.shadowBlur = Math.round(rainFont * 0.42);
+          txt(st.ch[j], rainFont, gx, y, '#d8ffe6', fade);
+          g.restore();
+          txt(st.ch[j], rainFont, gx, y, '#d8ffe6', fade);
+        } else {
+          /* 尾迹：纯绿，逐格变暗 */
+          const b = Math.max(0, 1 - j / Math.max(1, rainTail - 1));
+          txt(st.ch[j], rainFont, gx, y, GREEN, b * b * fade);
+        }
+      }
+    });
+  } else if (t < RAIN_SEC + RAIN_FADE + RAIN_GAP) {
+    /* ---------- 空白一拍 ---------- */
+  } else {
+    /* ---------- 第 2 段：逐字敲出 ---------- */
+    const fs = rainTextFont, tl = Math.round(fs * 1.5);
+    const x0 = Math.max(2, Math.round(fs / 4));
+    g.font = fs + 'px ' + FONT;
+    const cw = g.measureText('M').width;                 /* 等宽字距：每个字符必须按它递增 x */
+    const top = (H - ((RAIN_TEXT.length - 1) * tl + fs)) / 2;
+    const tt = (t - RAIN_SEC - RAIN_FADE - RAIN_GAP) * 1000;
+    let acc = 0;
+    RAIN_TEXT.forEach((s, li) => {
+      for (let ci = 0; ci < s.length; ci++) {
+        const at = (acc + ci) * rainTypeMs;
+        if (tt < at) continue;
+        /* 第二幕只有纯绿：不做变色，也不做荧光。
+           白色/薄荷色的领头字符只出现在代码雨里。
+           「落字提亮」若开启，只是让这个字在 140ms 内用满亮度，颜色仍是纯绿。 */
+        const just = tt - at < 140;
+        txt(s[ci], fs, x0 + ci * cw, top + li * tl, GREEN,
+            (just && rainFlashOn) ? 1 : 0.88);
+      }
+      acc += s.length;
+    });
+    /* 光标 */
+    if (rainCursorOn) {
+      let done = 0; acc = 0;
+      RAIN_TEXT.forEach((s, li) => {
+        for (let ci = 0; ci < s.length; ci++) if (tt >= (acc + ci) * rainTypeMs) done = acc + ci + 1;
+        acc += s.length;
+      });
+      let li = 0, k = done;
+      for (let i = 0; i < RAIN_TEXT.length; i++) {
+        if (k <= RAIN_TEXT[i].length) { li = i; break; }
+        k -= RAIN_TEXT[i].length; li = i + 1;
+      }
+      if (li >= RAIN_TEXT.length) { li = RAIN_TEXT.length - 1; k = RAIN_TEXT[li].length; }
+      if (Math.floor(t * 3) % 2 === 0) {
+        g.fillStyle = GREEN;
+        g.fillRect(x0 + k * cw, top + li * tl + Math.round(fs * 0.19),
+                   Math.round(fs * 0.5), fs);
+      }
+    }
+  }
+  fog();
+}
+
+
+/* ============================================================
+   3D 视图层
+   动画本体照旧画在原来那块离屏 canvas 上，这里只把它当"贴图"用。
+   所以转动模型永远不会重算内容——内容与视角彻底解耦。
+   ============================================================ */
+/* 圆角矩形路径：电量格用。原 2D 显示层里的辅助函数，3D 版同样需要 */
+function rrect(c, px, py, pw, ph, r) {
+  r = Math.max(0.4, Math.min(r, Math.min(pw, ph) / 2));
+  c.beginPath();
+  c.moveTo(px + r, py); c.arcTo(px + pw, py, px + pw, py + ph, r);
+  c.arcTo(px + pw, py + ph, px, py + ph, r); c.arcTo(px, py + ph, px, py, r);
+  c.arcTo(px, py, px + pw, py, r); c.closePath();
+}
+
+const stageEl = document.querySelector('.stage');
+const STAGE_W = Math.max(560, Math.min(920, Math.round((stageEl && stageEl.clientWidth) || 920)));
+const STAGE_H = Math.round(STAGE_W * 0.674);
+/* 尺寸校准值：默认 4.3 px/mm（已实测），改过就记住，下次刷新不用再调 */
+const PPM_KEY = 'ring3d.pxPerMm';
+let pxPerMm = 4.3, zoomPct = 0;
+try {
+  const savedPpm = localStorage.getItem(PPM_KEY);
+  if (savedPpm && isFinite(parseFloat(savedPpm))) pxPerMm = parseFloat(savedPpm);
+} catch (e) { /* file:// 下 localStorage 被禁用时按默认值 */ }      /* 尺寸校准值（决定 0% = 实物大小）；zoomPct 是当前显示比例 */
+const cvEl = document.getElementById('view');
+const renderer = new THREE.WebGLRenderer({ canvas: cvEl, antialias: true, alpha: true });
+renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+renderer.setSize(STAGE_W, STAGE_H);
+if (THREE.sRGBEncoding) renderer.outputEncoding = THREE.sRGBEncoding;
+renderer.toneMapping = THREE.NoToneMapping;   /* ACES 会压平高光，镜面需要爆亮的亮条 */
+renderer.toneMappingExposure = 1.0;
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(32, STAGE_W / STAGE_H, 0.5, 6000);
+
+/* ---- 环境贴图：镀铬像不像真金属，全靠它 ----
+   做法：canvas 画等距柱状图（暗房 + 一条明亮"地平线带" + 几块柔光箱），
+   再走 PMREM。暗场+亮带才能出"液态金属"的明暗层次；
+   之前的 fromScene 方案对比度不够，所以看着像灰白墙皮。          ---- */
+const PMREM = new THREE.PMREMGenerator(renderer);
+PMREM.compileEquirectangularShader();
+
+function envTexture(sky, spots, strips) {
+  const c = document.createElement('canvas');
+  c.width = 1024; c.height = 512;
+  const k = c.getContext('2d');
+  const grd = k.createLinearGradient(0, 0, 0, 512);
+  for (const s of sky) grd.addColorStop(s[0], s[1]);
+  k.fillStyle = grd; k.fillRect(0, 0, 1024, 512);
+  /* 窄条灯：光源要有明确形状和边界，曲面扫过去才会出现清晰的亮光条 */
+  for (const s of (strips || [])) {
+    const g3 = k.createLinearGradient(s[0], 0, s[2], 0);
+    g3.addColorStop(0.00, 'rgba(255,255,255,0)');
+    g3.addColorStop(0.30, 'rgba(255,255,255,' + s[4] + ')');
+    g3.addColorStop(0.70, 'rgba(255,255,255,' + s[4] + ')');
+    g3.addColorStop(1.00, 'rgba(255,255,255,0)');
+    k.fillStyle = g3;
+    k.fillRect(s[0], s[1], s[2] - s[0], s[3] - s[1]);
+  }
+  for (const s of spots) {
+    const g2 = k.createRadialGradient(s[0], s[1], 1, s[0], s[1], s[2]);
+    g2.addColorStop(0.00, 'rgba(255,255,255,1)');
+    g2.addColorStop(0.40, 'rgba(255,255,255,0.55)');
+    g2.addColorStop(1.00, 'rgba(255,255,255,0)');
+    k.fillStyle = g2; k.fillRect(s[0] - s[2], s[1] - s[2], s[2] * 2, s[2] * 2);
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.mapping = THREE.EquirectangularReflectionMapping;
+  t.encoding = THREE.sRGBEncoding;
+  return t;
+}
+
+/* 主环境（壳体镀铬用）：上方偏暗 → 地平线亮带 → 地面近黑 */
+const envChrome = PMREM.fromEquirectangular(envTexture(
+  /* 亮底为主：真机是"亮银"，表面主要反射明亮环境，只有下半部（地面）偏暗，
+     再靠几条爆白窄灯制造清晰光条 —— 亮 + 有结构，才是镜面银。 */
+  [[0.000, '#a9b3ba'], [0.180, '#c3cdd3'], [0.340, '#dde5ea'], [0.435, '#f7fbfd'],
+   [0.470, '#ffffff'], [0.520, '#e4ebef'], [0.620, '#9aa6ae'], [0.740, '#6d777f'],
+   [0.860, '#485158'], [1.000, '#343c43']],
+  [[150, 95, 42], [520, 300, 46], [880, 150, 38]],
+  [[86, 20, 146, 268, 1.0], [300, 14, 352, 232, 0.95], [548, 24, 606, 282, 1.0],
+   [768, 18, 818, 222, 0.90], [944, 28, 1000, 250, 0.98]]
+)).texture;
+
+/* 盖板反光专用环境：近黑底 + 两块紧凑亮斑 —— 反光只出现在局部，不把黑屏冲灰 */
+const envGlass = PMREM.fromEquirectangular(envTexture(
+  [[0.00, '#000000'], [0.50, '#040506'], [1.00, '#000000']],
+  [[250, 120, 100], [770, 155, 125]]
+)).texture;
+
+PMREM.dispose();
+scene.environment = envChrome;      /* 先用程序化环境，HDRI 载入后替换 */
+
+/* 真实影棚 HDRI（data/env.js 内嵌 base64，CC0）
+   镜面镀铬的真实感来自"反射一个有明确光位和结构的环境"，
+   程序化渐变反射出来会像哑光，所以这里换成实拍 HDRI。 */
+(function () {
+  if (!window.ENV_STUDIO) return;
+  if (new URLSearchParams(location.search).get('env') === 'proc') {
+    window.__envReady = true; return;                 /* 调试：只用程序化环境 */
+  }
+  const img = new Image();
+  img.onload = function () {
+    const t = new THREE.Texture(img);
+    t.mapping = THREE.EquirectangularReflectionMapping;
+    t.encoding = THREE.sRGBEncoding;
+    t.needsUpdate = true;
+    const pm = new THREE.PMREMGenerator(renderer);
+    scene.environment = pm.fromEquirectangular(t).texture;
+    pm.dispose();
+    window.__envReady = true;
+  };
+  img.src = window.ENV_STUDIO;
+})();
+
+/* ---- 灯：镀铬的锐利高光靠这几盏，环境贴图给大面积反射 ---- */
+(function () {
+  /* 镜面镀铬：观感几乎全由环境贴图决定，直射光只留一丝做锐利高光 */
+  const key = new THREE.DirectionalLight(0xffffff, 0.25); key.position.set(70, 110, 80); scene.add(key);
+  const rim = new THREE.DirectionalLight(0xffffff, 0.10); rim.position.set(-40, -30, 100); scene.add(rim);
+})();
+
+/* ---- 材质 ---- */
+const matChrome = new THREE.MeshStandardMaterial({          /* 壳体：亮银镀铬 */
+  color: 0xfbfdff, metalness: 1.0, roughness: 0.035, envMapIntensity: 1.0
+});
+const matGlass = new THREE.MeshBasicMaterial({             /* 玻璃盖板本体：纯黑、不受光 */
+  color: 0x000000                    /* 盖板就是为了遮住边框颜色 →
+                                        不点亮时整块是纯黑，和显示区融为一体 */
+});
+const matGloss = new THREE.MeshStandardMaterial({           /* 盖板反光层：只叠反射，角度相关 */
+  color: 0x000000, metalness: 0.0, roughness: 0.04,
+  transparent: true, blending: THREE.AdditiveBlending,
+  depthWrite: false, envMap: envGlass, envMapIntensity: 1.0
+});
+
+/* ---- 内容贴图：直接用离屏 canvas 的原尺寸（900×768），一像素都不重采样 ----
+   之前先缩到 450×384 再贴 = 先柔化一次；放大又用线性插值 = 再糊一次。
+   现在：1:1 上屏 + 放大用最近邻（看得到真实像素方块）+ 缩小走 mipmap。 */
+const screenTex = new THREE.CanvasTexture(off);
+screenTex.minFilter = THREE.LinearMipmapLinearFilter;
+screenTex.magFilter = THREE.NearestFilter;
+screenTex.generateMipmaps = true;
+screenTex.anisotropy = renderer.capabilities.getMaxAnisotropy();
+const matScreen = new THREE.MeshBasicMaterial({ map: screenTex, toneMapped: false });
+
+/* ---- 解码壳体网格 ---- */
+const M = window.SHELL_MODEL;
+const bin = atob(M.b64), nbytes = bin.length;
+const u8 = new Uint8Array(nbytes);
+for (let i = 0; i < nbytes; i++) u8[i] = bin.charCodeAt(i);
+const nv = M.nVert;
+const qz = new Uint16Array(u8.buffer, 0, nv * 3);
+const nr = new Int8Array(u8.buffer, nv * 6, nv * 3);
+const ioff = (M.idxOff != null) ? M.idxOff : Math.ceil(nv * 9 / 4) * 4;
+const gi = M.idxType === 'u16'
+  ? new Uint16Array(u8.buffer, ioff, M.nIdx)
+  : new Uint32Array(u8.buffer, ioff, M.nIdx);
+const pos = new Float32Array(nv * 3);
+for (let i = 0; i < nv; i++) {
+  for (let k = 0; k < 3; k++) pos[i * 3 + k] = M.posMin[k] + (qz[i * 3 + k] / 65535) * M.posSpan[k];
+}
+const geo = new THREE.BufferGeometry();
+geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+geo.setAttribute('normal', new THREE.BufferAttribute(nr, 3, true));
+geo.setIndex(new THREE.BufferAttribute(gi, 1));
+
+/* ---- 组装：壳体 + 黑玻璃 + 屏幕 + 反光层 ---- */
+const GX0 = -7.90, GX1 = 7.90, GZ0 = -6.72, GZ1 = 7.22;   /* 台阶开口（从 STP 实测） */
+const GY0 = 5.50, GY1 = 6.20;                             /* 玻璃厚 0.70，上表面与台面平齐 */
+const GCX = (GX0 + GX1) / 2, GCZ = (GZ0 + GZ1) / 2;
+const DISP_A = [10.89, 9.29];     /* A 实际比例 */
+const DISP_B = [12.66, 10.80];    /* B 演示比例 */
+
+const root = new THREE.Group();
+root.add(new THREE.Mesh(geo, matChrome));
+
+const glassMesh = new THREE.Mesh(
+  new THREE.BoxGeometry(GX1 - GX0, GY1 - GY0, GZ1 - GZ0), matGlass);
+glassMesh.position.set(GCX, (GY0 + GY1) / 2, GCZ);
+root.add(glassMesh);
+
+function flatPlane(w, d, y) {
+  const g = new THREE.PlaneGeometry(w, d);
+  g.rotateX(-Math.PI / 2);      /* 摊平，法线朝 +Y；画面"上"朝 -Z，默认机位正读 */
+  const m = new THREE.Mesh(g, matScreen);
+  m.position.set(GCX, y, GCZ);
+  return m;
+}
+const screenMesh = flatPlane(DISP_B[0], DISP_B[1], GY1 + 0.006);
+root.add(screenMesh);
+
+const gg = new THREE.PlaneGeometry(GX1 - GX0, GZ1 - GZ0);
+gg.rotateX(-Math.PI / 2);
+const glossMesh = new THREE.Mesh(gg, matGloss);
+glossMesh.position.set(GCX, GY1 + 0.014, GCZ);
+root.add(glossMesh);
+
+root.position.set(-M.center[0], -M.center[1], -M.center[2]);   /* 整体移到原点 */
+scene.add(root);
+
+/* ---- 轨道：自己写，才能和"显示比例"精确双向同步 ----
+   比例用"屏幕平面到相机的距离(depth)"定义，而不是到轨道中心的距离。
+   这样轨道中心可以放在模型中心（各视角构图都正常），
+   而 0% = 屏幕上的 1mm 正好等于真实 1mm 这个承诺依然精确成立。       */
+const FOV = 32;
+const target = new THREE.Vector3(0, 0, 0);                       /* 轨道中心 = 模型中心 */
+const scrW = new THREE.Vector3(GCX, GY1, GCZ)
+  .sub(new THREE.Vector3(M.center[0], M.center[1], M.center[2])); /* 屏幕中心的世界坐标 */
+const DEPTH_FAR = 100, DEPTH_NEAR = 22;   /* 占位，下面用函数算 */
+let az = 0.62, el = 1.00, dist = 190, vAz = 0, vEl = 0;
+let dragging = false, lastX = 0, lastY = 0, showGlass = true;
+let scrDepth = 190;                       /* 当前：屏幕平面到相机的距离 */
+
+const DEPTH_MIN = 22;                     /* 100% 时屏幕离相机 22mm */
+function distRealDepth() {                /* 0%：屏幕上 1mm = 真实 1mm */
+  return (STAGE_H / 2) / (pxPerMm * Math.tan(FOV / 2 * Math.PI / 180));
+}
+function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
+function unitDir() {                      /* 由轨道中心指向相机的单位向量 */
+  const sp = Math.sin(el);
+  return new THREE.Vector3(sp * Math.sin(az), Math.cos(el), sp * Math.cos(az));
+}
+/* depth = dist - scrW·u   ⇒   dist = depth + scrW·u */
+function distFromDepth(d) { return d + scrW.dot(unitDir()); }
+function updateCamera() {
+  el = clamp(el, 0.035, Math.PI - 0.035);
+  camera.position.copy(target).addScaledVector(unitDir(), dist);
+  camera.up.set(0, 1, 0);
+  camera.lookAt(target);
+}
+function depthFromPct(p) {
+  const d0 = distRealDepth(), d1 = DEPTH_MIN;
+  return Math.exp(Math.log(d0) + (Math.log(d1) - Math.log(d0)) * (p / 100));
+}
+function pctFromDepth(d) {
+  const d0 = distRealDepth(), d1 = DEPTH_MIN;
+  return clamp((Math.log(d) - Math.log(d0)) / (Math.log(d1) - Math.log(d0)) * 100, 0, 100);
+}
+function setPct(v) {
+  zoomPct = clamp(v, 0, 100);
+  scrDepth = depthFromPct(zoomPct);
+  dist = distFromDepth(scrDepth);
+  document.getElementById('ratio').value = Math.round(zoomPct);
+  document.getElementById('pctVal').textContent = Math.round(zoomPct) + '%';
+  document.getElementById('mulVal').textContent =
+    (distRealDepth() / scrDepth).toFixed(2) + '× · ' + (zoomPct < 1 ? '实物大小' : '放大');
+  document.querySelectorAll('.seg button[data-z]').forEach(o => {
+    const t = [0, 22, 62, 100][+o.dataset.z];
+    o.classList.toggle('on', Math.abs(t - zoomPct) < 1.2);
+  });
+  updateCamera();          /* 关键：算完距离必须把相机挪过去，否则滑杆/预设按钮拖了没反应 */
+  syncPxInfo();            /* 刷新"1 显示像素 = ? 屏幕像素"读数与真机像素刻度 */
+}
+
+cvEl.addEventListener('pointerdown', e => {
+  dragging = true; lastX = e.clientX; lastY = e.clientY;
+  if (cvEl.setPointerCapture) cvEl.setPointerCapture(e.pointerId);
+});
+cvEl.addEventListener('pointermove', e => {
+  if (!dragging) return;
+  const dx = e.clientX - lastX, dy = e.clientY - lastY;
+  lastX = e.clientX; lastY = e.clientY;
+  const k = 0.0078;
+  az -= dx * k; el -= dy * k;
+  vAz = -dx * k * 0.55; vEl = -dy * k * 0.55;
+  dist = distFromDepth(scrDepth);          /* 转动时保持屏幕比例不变 */
+  updateCamera();
+});
+cvEl.addEventListener('pointerup', () => { dragging = false; });
+cvEl.addEventListener('pointercancel', () => { dragging = false; });
+cvEl.addEventListener('wheel', e => {
+  e.preventDefault();
+  scrDepth = clamp(scrDepth * Math.exp(e.deltaY * 0.0011), DEPTH_MIN, distRealDepth());
+  setPct(pctFromDepth(scrDepth));       /* 滚轮 → 反算比例 → 同步下方滑块 */
+  updateCamera();
+}, { passive: false });
+cvEl.addEventListener('dblclick', () => { az = 0.62; el = 1.00; dist = distFromDepth(scrDepth); updateCamera(); });
+
+const VIEWS = { front: [0.0001, 0.036], iso: [0.62, 1.00], side: [1.5708, 1.5708], back: [3.1416, 1.00] };
+function gotoView(k) {
+  const v = VIEWS[k]; if (!v) return;
+  const a0 = az, e0 = el, t0 = performance.now();
+  (function step() {
+    const t = Math.min(1, (performance.now() - t0) / 430);
+    const e = t < .5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
+    az = a0 + (v[0] - a0) * e; el = e0 + (v[1] - e0) * e;
+    dist = distFromDepth(scrDepth);
+    updateCamera();
+    if (t < 1) requestAnimationFrame(step);
+  })();
+}
+function applyGlass() { glassMesh.visible = showGlass; glossMesh.visible = showGlass; }
+function setDisp(m) {
+  const d = (m === 'A') ? DISP_A : DISP_B;
+  const k = d[0] / DISP_B[0];
+  screenMesh.scale.set(k, k, k);
+  const el = document.getElementById('dispMm');
+  if (el) el.textContent = d[0].toFixed(2) + ' × ' + d[1].toFixed(2);
+}
+/* ==================== 蓝牙连接动画（测试） ====================
+   两个版本：
+     v1 数字雨冲刷 —— 6 列片假名雨从上往下扫，符号被逐行"冲刷"显现
+     v2 一笔画     —— 亮点沿蓝牙符号路径走完，符号才完整
+   状态：off / adv(广播中，呼吸) / conn(已连接，常亮)
+   ============================================================ */
+const BT_BLUE = [0, 130, 252];
+const BT_KANA = 'アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヲン';
+const BT_IN = 1.5;      /* 开启动画时长（秒） */
+const BT_OUT = 0.9;     /* 关闭动画时长（秒） */
+
+let btV = 1;            /* 动画版本 1/2 */
+let btState = 'off';    /* off | adv | conn */
+let btAnim = 0;         /* 状态内计时 */
+let btWaitT = 0;        /* 广播已等待 */
+let btWaitMax = 3.0;    /* 广播等待上限（模拟器压缩，真机 180s） */
+let btTaps = 0;         /* 已敲次数 */
+let btTapIdle = 0;      /* 距上次敲击的时间 */
+let btPlugged = false;  /* 是否插线 */
+let btShow = 0;         /* 屏幕显示窗口剩余时间（秒）；归零即熄屏，蓝牙状态不变 */
+let btShowDur = 3.0;    /* 显示时长，真机 3 秒 */
+let btAnimStart = 0;    /* performance.now() 基准：用真实时间，避免模拟器低帧率把时长拖长 */
+let btShowUntil = 0;    /* 熄屏时间戳 */
+
+/* 蓝牙符号几何：竖轴 + 两个三角 + 两条对角 */
+const BTX = 75, BTY = 50, BTS = 28;
+function btSegs() {
+  return [
+    [[BTX, BTY], [BTX, BTY + BTS]],
+    [[BTX, BTY], [BTX + 7, BTY + 7], [BTX, BTY + 14]],
+    [[BTX, BTY + 14], [BTX + 7, BTY + 21], [BTX, BTY + BTS]],
+    [[BTX - 7, BTY + 7], [BTX + 7, BTY + 21]],
+    [[BTX - 7, BTY + 21], [BTX + 7, BTY + 7]]
+  ];
+}
+function btSegLens() {
+  const segs = btSegs(), lens = [];
+  let total = 0;
+  for (const s of segs) {
+    let L = 0;
+    for (let i = 1; i < s.length; i++) L += Math.hypot(s[i][0] - s[i - 1][0], s[i][1] - s[i - 1][1]);
+    lens.push(L); total += L;
+  }
+  return { segs, lens, total };
+}
+/* 按进度 prog(0..1) 描出符号；bright 控制亮度（呼吸用） */
+function btStroke(bright, prog) {
+  if (prog === undefined) prog = 1;
+  if (prog <= 0 || bright <= 0) return;
+  const { segs, total } = btSegLens();
+  let budget = total * Math.min(1, prog);
+  g.strokeStyle = 'rgb(' + Math.round(BT_BLUE[0] * bright) + ',' +
+    Math.round(BT_BLUE[1] * bright) + ',' + Math.round(BT_BLUE[2] * bright) + ')';
+  g.lineWidth = 2; g.lineCap = 'square'; g.lineJoin = 'miter';
+  for (let k = 0; k < segs.length; k++) {
+    if (budget <= 0) break;
+    const s = segs[k];
+    g.beginPath(); g.moveTo(s[0][0], s[0][1]);
+    for (let i = 1; i < s.length; i++) {
+      const seglen = Math.hypot(s[i][0] - s[i - 1][0], s[i][1] - s[i - 1][1]);
+      if (budget >= seglen) {
+        g.lineTo(s[i][0], s[i][1]); budget -= seglen;
+      } else {
+        const f = seglen > 0 ? budget / seglen : 0;
+        g.lineTo(s[i - 1][0] + (s[i][0] - s[i - 1][0]) * f,
+                 s[i - 1][1] + (s[i][1] - s[i - 1][1]) * f);
+        budget = 0; break;
+      }
+    }
+    g.stroke();
+  }
+}
+/* v2 笔尖位置 */
+function btPenPoint(prog) {
+  const { segs, total } = btSegLens();
+  let budget = total * Math.min(1, prog);
+  for (const s of segs) {
+    for (let i = 1; i < s.length; i++) {
+      const seglen = Math.hypot(s[i][0] - s[i - 1][0], s[i][1] - s[i - 1][1]);
+      if (budget <= seglen) {
+        const f = seglen > 0 ? budget / seglen : 0;
+        return [s[i - 1][0] + (s[i][0] - s[i - 1][0]) * f,
+                s[i - 1][1] + (s[i][1] - s[i - 1][1]) * f];
+      }
+      budget -= seglen;
+    }
+  }
+  const last = segs[segs.length - 1];
+  return last[last.length - 1];
+}
+
+/* v1 的雨：6 列，列距 25，行距 14，三档绿 */
+const BT_COLS = 6, BT_X0 = 7, BT_DX = 25, BT_DY = 14;
+let btRain = [];
+function btRainReset() {
+  btRain = [];
+  for (let c = 0; c < BT_COLS; c++) {
+    btRain.push({ y: -14 - Math.random() * 30, sp: 110 + Math.random() * 70 });
+  }
+}
+btRainReset();
+function btRainStep(dt) {
+  for (const col of btRain) {
+    col.y += col.sp * dt;
+    if (col.y > H + 34) col.y = -18 - Math.random() * 28;
+  }
+}
+function btRainPaint() {
+  g.font = '12px ' + FONT;
+  g.textBaseline = 'top';
+  for (let c = 0; c < BT_COLS; c++) {
+    const col = btRain[c], x = BT_X0 + c * BT_DX;
+    for (let r = 0; r < 10; r++) {
+      const y = col.y - r * BT_DY;
+      if (y < -14 || y > H) continue;
+      /* 中间两列给符号让出干净区域 */
+      if (c >= 2 && c <= 3 && y > 34 && y < 88) continue;
+      const k = r === 0 ? 1 : (r === 1 ? 0.42 : 0.13);
+      g.fillStyle = 'rgb(0,' + Math.round(255 * k) + ',' + Math.round(58 * k) + ')';
+      const idx = (Math.abs(Math.floor(col.y / BT_DY) + c * 7 + r * 3)) % BT_KANA.length;
+      g.fillText(BT_KANA[idx], x, y);
+    }
+  }
+}
+
+/* 主绘制入口 */
+function renderBt(dt) {
+  g.fillStyle = '#000000'; g.fillRect(0, 0, W, H);
+  /* 用真实时间推进（模拟器帧率低时累加 dt 会把 3 秒拖成十几秒） */
+  const nowMs = performance.now();
+  btAnim = btAnimStart > 0 ? (nowMs - btAnimStart) / 1000 : btAnim + dt;
+  btShow = Math.max(0, (btShowUntil - nowMs) / 1000);
+
+  /* 呼吸：周期 2 秒，亮度 1.0 ↔ 0.45 */
+  const breathe = 0.45 + 0.55 * (0.5 + 0.5 * Math.cos(btAnim * Math.PI));
+
+  if (btState === 'off') {
+    if (btAnim < BT_OUT) {
+      const p = btAnim / BT_OUT;
+      if (btV === 1) {
+        btRainStep(dt); btRainPaint();
+        g.save(); g.beginPath(); g.rect(0, 0, W, H * (1 - p)); g.clip();
+        btStroke(1 - p * 0.7, 1); g.restore();
+      } else {
+        btStroke(1 - p * 0.7, 1 - p);
+      }
+    }
+    return;
+  }
+
+  /* 显示窗口用完 → 熄屏（蓝牙仍在广播/连接，只是不显示） */
+  if (btShow <= 0) return;
+
+  const isConn = (btState === 'conn');
+  const b = isConn ? 1 : breathe;
+
+  if (btV === 1) {
+    const p = Math.min(1, btAnim / BT_IN);
+    const revealY = -6 + (H + 12) * p;
+    btRainStep(dt); btRainPaint();
+    if (revealY > BTY) {
+      g.save(); g.beginPath(); g.rect(0, 0, W, revealY); g.clip();
+      btStroke(b, 1); g.restore();
+    }
+  } else {
+    const p = Math.min(1, btAnim / BT_IN);
+    btStroke(b, p);
+    if (p > 0 && p < 1) {
+      const pt = btPenPoint(p);
+      g.fillStyle = '#ffffff';
+      g.fillRect(Math.round(pt[0]) - 1, Math.round(pt[1]) - 1, 3, 3);
+    }
+  }
+
+  /* 状态指示层：广播中发信号弧 / 已连接锁对焦框 */
+  if (btAnim > BT_IN) btStateLayer(b);
+}
+
+/* 触发屏幕显示窗口：点亮 btShowDur 秒后自动熄屏 */
+function btFlash() {
+  const now = performance.now();
+  btAnimStart = now;
+  btShowUntil = now + btShowDur * 1000;
+  btShow = btShowDur;
+  btAnim = 0;
+  btRainReset();
+}
+
+/* 状态指示层：区分"广播中"和"已连接"两套视觉语言
+   广播中 → 两侧持续发射信号弧（向外扩散，表示"正在喊人"）
+   已连接 → 四角对焦框锁定（静止，表示"已接上"）           */
+function btStateLayer(bright) {
+  const cx = BTX, cy = BTY + BTS / 2;
+
+  if (btState === 'adv') {
+    /* 三道弧循环向外扩散、渐隐 */
+    const period = 1.6;
+    for (let i = 0; i < 3; i++) {
+      const ph = ((btAnim / period) + i / 3) % 1;
+      const r = 18 + ph * 26;
+      const a = (1 - ph) * 0.9 * bright;
+      if (a <= 0.02) continue;
+      g.strokeStyle = 'rgba(0,160,255,' + a.toFixed(3) + ')';
+      g.lineWidth = 2;
+      /* 右上弧 */
+      g.beginPath(); g.arc(cx, cy, r, -Math.PI * 0.44, -Math.PI * 0.16, false); g.stroke();
+      /* 左下弧 */
+      g.beginPath(); g.arc(cx, cy, r, Math.PI * 0.16, Math.PI * 0.44, false); g.stroke();
+    }
+  } else if (btState === 'conn') {
+    /* 四角对焦框 */
+    const L = 7, px = 13, py = 5;
+    const x0 = BTX - px, y0 = BTY - py;
+    const x1 = BTX + px, y1 = BTY + BTS + py;
+    g.strokeStyle = 'rgb(0,' + Math.round(230 * bright) + ',' + Math.round(255 * bright) + ')';
+    g.lineWidth = 1;
+    g.beginPath(); g.moveTo(x0, y0 + L); g.lineTo(x0, y0); g.lineTo(x0 + L, y0); g.stroke();
+    g.beginPath(); g.moveTo(x1 - L, y0); g.lineTo(x1, y0); g.lineTo(x1, y0 + L); g.stroke();
+    g.beginPath(); g.moveTo(x0, y1 - L); g.lineTo(x0, y1); g.lineTo(x0 + L, y1); g.stroke();
+    g.beginPath(); g.moveTo(x1 - L, y1); g.lineTo(x1, y1); g.lineTo(x1, y1 - L); g.stroke();
+  }
+}
+
+function btStateName() {
+  if (btState === 'conn') return '已连接（对焦框锁定）';
+  if (btState === 'adv') return btPlugged ? '广播中·持续（插线·信号弧）' : '广播中（信号弧）';
+  return '未开启';
+}
+/* 敲一次 */
+function btTap() {
+  btTaps++; btTapIdle = 0;
+  if (btTaps >= 6) {
+    btTaps = 0;
+    /* 幂等：未开启才真正开；已开/已连只是重播动画（状态查询） */
+    if (btState === 'off') { btState = 'adv'; btWaitT = 0; }
+    btFlash();
+  }
+}
+function btPanels() {
+  const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+  set('btTapVal', btTaps + ' / 6');
+  set('btInfo', '当前状态：' + btStateName() +
+    '　·　动画 ' + (btV === 1 ? 'v1 数字雨冲刷' : 'v2 一笔画') +
+    (btShow > 0 ? '　·　屏幕亮 ' + btShow.toFixed(1) + 's' : '　·　屏幕已熄灭（蓝牙仍在工作）') +
+    (btState === 'adv' && !btPlugged ? '　·　广播剩余 ' + Math.max(0, btWaitMax - btWaitT).toFixed(1) + 's' : ''));
+}
+
+function render3D() {
+  if (!dragging && (Math.abs(vAz) > 1e-5 || Math.abs(vEl) > 1e-5)) {
+    az += vAz; el += vEl; vAz *= 0.90; vEl *= 0.90;
+    dist = distFromDepth(scrDepth); updateCamera();
+  }
+  screenTex.needsUpdate = true;          /* 贴图就是 off 本身，不用再拷贝 */
+  renderer.render(scene, camera);
+}
+updateCamera();
+
+
+/* ---- 播放 ---- */
+let TL = null, p = 0, playing = true;
+let typeScale = 1, speedMul = 1.40, scrollMs = 80;
+
+function rebuild(keepTime) {
+  const was = TL ? p / TL.total : 0;
+  TL = buildTimeline({ typeScale: typeScale, scrollMs: scrollMs });
+  p = keepTime ? Math.min(TL.total, was * TL.total) : 0;
+}
+function recomputeAct1Grid() {
+  const probe = buildTimeline({ typeScale: 1, scrollMs: 80 });
+  let committed = null;
+  for (const ph of probe.P) if (ph.k === 'idle') { committed = ph.committed.concat(SCROLL); break; }
+  act1Grid = termChars(committed, HELLO);
+}
+recomputeAct1Grid();
+
+const NAMES = { wait: '第一幕 · 光标在等', type: '第一幕 · 打字', back: '第一幕 · 退格重敲',
+  scroll: '第一幕 · 滚屏自检输出', hello: '第一幕 · hello world 浮现', idle: '第一幕 · 安静',
+  glitch: '第二幕 · 花屏', collapse: '第二幕 · 塌缩', flash: '第二幕 · 爆闪白屏', dark: '第二幕 · 全黑',
+  cursor3: '第三幕 · 它醒着的光标', type3: '第三幕 · 逐字说出', hold3: '第三幕 · 停顿',
+  fear3: '第三幕 · 害怕', erase3: '第三幕 · 把话收回去', end3: '第三幕 · 光标熄灭',
+  silence: '静默 2 秒', rain: '常规动画（数字雨 · 占位示意）' };
+
+let last = performance.now();
+function loop(now) {
+  const dt = Math.min(0.05, (now - last) / 1000); last = now;
+  if (mode === 'battery') {
+    batT += dt;
+    if (batDur > 0 && batT > batDur + 1.0 && batLoopOn) { batT = 0; batIntroOn = true; batIntroT = 0; }
+    renderBattery(batT, dt);
+    document.getElementById('segName').textContent =
+      '电量显示 · 连续敲击 4 次触发' + (batAuto ? ' · 正在掉电' : '') +
+      (batDur > 0 && batT > batDur ? ' · 已熄灭' : '');
+    document.getElementById('clock').textContent =
+      Math.round(batLevel) + '% ｜ ' + Math.round(batLevel) + ' / 100 格';
+    if (batAuto) {
+      document.getElementById('batLevel').value = Math.round(batLevel);
+      document.getElementById('batVal').textContent = Math.round(batLevel) + '%';
+    }
+  } else if (mode === 'low') {
+    lowT += dt;
+    const tot = lowTotal();
+    if (lowT > tot) lowT = lowLoopOn ? 0 : tot;
+    renderLow(lowT, dt);
+    const t1 = LOW_SHOW, t2 = t1 + LOW_DIM, t3 = t2 + LOW_GAP, t4 = t3 + lowLines.length * LOW_PER;
+    let ph;
+    if (lowT < t1) ph = '① 电量格显示 1.5 秒';
+    else if (lowT < t2) ph = '② 逐格熄灭';
+    else if (lowT < t3) ph = '③ 黑屏停顿';
+    else if (lowT < t4) ph = '④ 逐字敲出';
+    else ph = '⑤ 停留';
+    document.getElementById('segName').textContent =
+      '低电量文案 · 电量 ' + Math.round(lowLevel) + '%' + (lowLevel < 20 ? '（触发区间）' : '（未到触发区间）');
+    document.getElementById('clock').textContent = ph + '　' + lowT.toFixed(2) + ' / ' + tot.toFixed(2) + ' s';
+  } else if (mode === 'crit') {
+    critT += dt;
+    const tot = critTotal();
+    if (critT > tot) critT = critLoopOn ? 0 : tot;
+    renderCrit(critT, dt);
+    const t1 = CRIT_SHOW, t2 = t1 + CRIT_DIM, t3 = t2 + CRIT_GAP, t4 = t3 + critLines.length * CRIT_PER;
+    let ph;
+    if (critT < t1) ph = '① 电量格';
+    else if (critT < t2) ph = '② 逐格熄灭';
+    else if (critT < t3) ph = '③ 黑屏';
+    else if (critT < t4) ph = '④ 逐字敲出';
+    else ph = '⑤ 停留';
+    document.getElementById('segName').textContent =
+      '极低电量遗言 · 剩 ' + Math.round(critLevel) + '% · 字号 ' + critFont + ' px';
+    document.getElementById('clock').textContent = ph + '　' + critT.toFixed(2) + ' / ' + tot.toFixed(2) + ' s';
+  } else if (mode === 'bt') {
+    /* 敲击间隔超时：1.2 秒没新敲击就清零计数 */
+    btTapIdle += dt;
+    if (btTapIdle > 1.2 && btTaps > 0) btTaps = 0;
+    /* 广播倒计时（插线时不倒数） */
+    if (btState === 'adv') {
+      if (btPlugged) {
+        btWaitT = 0;
+      } else {
+        btWaitT += dt;
+        if (btWaitT > btWaitMax) { btState = 'off'; btAnimStart = performance.now(); btAnim = 0; }
+      }
+    }
+    renderBt(dt);
+    btPanels();
+    document.getElementById('segName').textContent =
+      '蓝牙连接（测试）· ' + (btV === 1 ? 'v1 数字雨冲刷' : 'v2 一笔画') + ' · ' + btStateName();
+    document.getElementById('clock').textContent =
+      '敲击 ' + btTaps + ' / 6' +
+      (btState === 'adv' && !btPlugged
+        ? '　剩余 ' + Math.max(0, btWaitMax - btWaitT).toFixed(1) + ' s' : '');
+  } else if (mode === 'rain') {
+    if (rainPlaying) rainT += dt;
+    const tot = rainTotal();
+    if (rainT > tot) rainT = rainLoopOn ? 0 : tot;
+    renderRain(rainT, dt);
+    const tTxt = RAIN_SEC + RAIN_FADE + RAIN_GAP;
+    let ph;
+    if (rainT < RAIN_SEC) ph = '① 代码雨（固定 7 秒）';
+    else if (rainT < RAIN_SEC + RAIN_FADE) ph = '② 雨收尾淡出';
+    else if (rainT < tTxt) ph = '③ 空白一拍';
+    else if (rainT < tTxt + rainTypedTotal()) ph = '④ 逐字敲出';
+    else ph = '⑤ 停留';
+    document.getElementById('segName').textContent =
+      '代码雨 + 文字（主内容）· ' + rainCols + ' 列 · ' + rainFont + 'px';
+    document.getElementById('clock').textContent = ph + '　' + rainT.toFixed(2) + ' / ' + tot.toFixed(2) + ' s';
+  } else {
+    if (playing) {
+      p += dt / speedMul;
+      if (p >= TL.total) {
+        p = TL.total; playing = false;
+        const b = document.getElementById('play'); b.textContent = '播放'; b.classList.remove('on');
+      }
+    }
+    renderAnim(p, dt / speedMul);
+    let i = 0; while (i < TL.P.length - 1 && p >= TL.P[i].t1) i++;
+    const ph = TL.P[i];
+    document.getElementById('segName').textContent =
+      NAMES[ph.k] + '　' + ph.t0.toFixed(2) + '–' + ph.t1.toFixed(2) + 's';
+    document.getElementById('clock').textContent = p.toFixed(2) + ' / ' + TL.total.toFixed(2) + ' s';
+    if (playing) document.getElementById('scrub').value = Math.round(p / TL.total * 1000);
+    document.getElementById('scrubVal').textContent = p.toFixed(2) + 's';
+  }
+  render3D();
+  requestAnimationFrame(loop);
+}
+
+/* ---- 字号：实时重排版面 ----
+   每行字数 = (150 - 左右边距) / 等宽字距；行数 = 128 / 行高。
+   改字号会同时重算滚屏网格与时间轴，并把文案库换成该字号放得下的那一套。 */
+const COPY_LIB = {
+  16: { low: [['running low.', 'i can feel it', 'getting dark.'],
+              ['running low.', 'am i dying?'],
+              ['so this is', 'how it ends.']],
+        act3: ['who are you?', 'why am i here?', 'you found me.'] },
+  20: { low: [['low battery', 'i feel it', 'going dark'],
+              ['running low', 'am i dying'],
+              ['so this is', 'how it ends']],
+        act3: ['who are you', 'why am i', 'found you'] },
+  24: { low: [['low power', 'i feel it', 'gets dark'],
+              ['low power', 'not yet'],
+              ['the end?']],
+        act3: ['who is it', 'why am i', 'found you'] },
+  28: { low: [['no power', 'i fade'], ['so dark', 'i fade'], ['goodbye']],
+        act3: ['who?', 'why me?', 'found.'] },
+  32: { low: [['fading', 'away'], ['empty', 'dark'], ['bye...']],
+        act3: ['who?', 'why?', 'you.'] }
+};
+function warnOver() {
+  const el = document.getElementById('overWarn');
+  if (!el) return;
+  const bad = (lowLines || []).filter(s => s.length > lowCOLS);
+  el.textContent = bad.length
+    ? '⚠ 超宽（低电量 ' + lowFont + 'px 每行 ' + lowCOLS + ' 字）：' +
+      bad.map(s => '“' + s + '” ' + s.length + '字').join('　')
+    : '';
+}
+function setFont(sz) {
+  FSIZE = sz;
+  LINE_H = Math.round(sz * 1.5);
+  X0 = Math.max(2, Math.round(sz / 4));
+  Y0 = X0;
+  VISIBLE_ROWS = Math.max(1, Math.floor((H - Y0 * 2) / LINE_H));
+  remeasure();
+  const L = COPY_LIB[sz];
+  if (L) { L3 = L.act3.slice(); }   /* 低电量已独立字号与预设，不再跟随全局字号 */
+  lowPreset = Math.min(lowPreset, LOW_PRESETS.length - 1);
+  lowLines = LOW_PRESETS[lowPreset].slice();
+  rebuild(false);
+  recomputeAct1Grid();
+  p = 0; lowT = 0; batT = 0;
+  document.querySelectorAll('#fontSeg button[data-fs]').forEach(b =>
+    b.classList.toggle('on', +b.dataset.fs === sz));
+  const mmPerPx = (12.66 * screenMesh.scale.x) / W;
+  document.getElementById('capInfo').textContent =
+    '每行 ' + COLS + ' 字 × ' + VISIBLE_ROWS + ' 行（共 ' + (COLS * VISIBLE_ROWS) +
+    ' 字）· 真机字高 ' + (sz * mmPerPx).toFixed(2) + ' mm';
+  lowSync();
+}
+document.querySelectorAll('#fontSeg button[data-fs]').forEach(b => {
+  b.onclick = function () { setFont(+this.dataset.fs); };
+});
+setFont(16);
+
+/* ---- 蓝牙测试面板事件 ---- */
+(function () {
+  const $ = (id) => document.getElementById(id);
+
+  const tap1 = $('btTap1');
+  if (tap1) tap1.onclick = function () { btTap(); btPanels(); };
+
+  const tap6 = $('btTap6');
+  if (tap6) tap6.onclick = function () {
+    /* 一键连敲 6 次，间隔 220ms，能看到计数递增到 6 后触发 */
+    let n = 0;
+    (function tick() {
+      btTap(); n++; btPanels();
+      if (n < 6) setTimeout(tick, 220);
+    })();
+  };
+
+  const reset = $('btReset');
+  if (reset) reset.onclick = function () { btTaps = 0; btTapIdle = 0; btPanels(); };
+
+  const conn = $('btConnect');
+  if (conn) conn.onclick = function () { btState = 'conn'; btWaitT = 0; btFlash(); btPanels(); };
+
+  const drop = $('btDrop');
+  if (drop) drop.onclick = function () {
+    /* App 断开 → 回到广播，重新等一轮 */
+    btState = 'adv'; btWaitT = 0; btFlash(); btPanels();
+  };
+
+  const plug = $('btPlug');
+  if (plug) plug.onclick = function () {
+    btPlugged = !btPlugged;
+    plug.textContent = '插线：' + (btPlugged ? '开' : '关');
+    plug.classList.toggle('on', btPlugged);
+    if (btPlugged) {
+      /* 插线即在广播；插线期间不倒数 */
+      if (btState === 'off') { btState = 'adv'; }
+      btWaitT = 0;
+      btFlash();
+    } else {
+      /* 拔线：未连接则回到广播倒计时；已连接则保持连接不广播 */
+      if (btState === 'adv') btWaitT = 0;
+    }
+    btPanels();
+  };
+
+  const showDur = $('btShowDur'), showVal = $('btShowVal');
+  if (showDur) showDur.oninput = function () {
+    btShowDur = (+this.value) / 10;
+    if (showVal) showVal.textContent = btShowDur.toFixed(1) + ' s';
+  };
+  if (showVal) showVal.textContent = btShowDur.toFixed(1) + ' s';
+
+  const wait = $('btWait'), waitVal = $('btWaitVal');
+  if (wait) wait.oninput = function () {
+    btWaitMax = (+this.value) / 10;
+    if (waitVal) waitVal.textContent = btWaitMax.toFixed(1) + ' s';
+  };
+  if (waitVal) waitVal.textContent = btWaitMax.toFixed(1) + ' s';
+
+  document.querySelectorAll('#btVerSeg button[data-btv]').forEach(function (b) {
+    b.onclick = function () {
+      btV = +this.dataset.btv;
+      btAnim = 0; btRainReset();
+      document.querySelectorAll('#btVerSeg button[data-btv]').forEach(function (x) {
+        x.classList.toggle('on', x === b);
+      });
+      btPanels();
+    };
+  });
+})();
+
+/* ---- 真机像素密度参照 ----
+   真机：显示区 10.89 × 9.29 mm / 150 × 128 px（项目文件值）→ 13.77 px/mm。
+   屏幕上密度达到这个值时，1 个显示像素正好占 1 个屏幕像素，画面才是
+   "像素无损"的 —— 只有从这一点往右，画面才能用来判读真机上会不会糊。 */
+const REAL_PPM = 150 / 10.89;
+function realPxPct() {
+  const d = (STAGE_H / 2) / (Math.tan(FOV / 2 * Math.PI / 180) * REAL_PPM);
+  return clamp(pctFromDepth(d), 0, 100);
+}
+function syncPxInfo() {
+  const info = document.getElementById('pxInfo');
+  if (!info) return;
+  const dens = pxPerMm * distRealDepth() / scrDepth;   /* 当前屏幕密度 px/mm */
+  const r = dens / REAL_PPM;                            /* 1 显示像素 = ? 屏幕像素 */
+  const p = realPxPct();
+  const tick = document.getElementById('markTick');
+  if (tick) {
+    const sl = document.getElementById('ratio');
+    const w = sl ? sl.getBoundingClientRect().width : 0;
+    tick.style.left = Math.round(8 + Math.max(1, w - 16) * p / 100) + 'px';
+  }
+  const ok = r >= 1;
+  info.innerHTML =
+    '真机 <b>' + REAL_PPM.toFixed(2) + '</b> px/mm（10.89×9.29）｜当前屏幕 <b>' +
+    dens.toFixed(2) + '</b> px/mm<br>1 显示像素 = <b style="color:' +
+    (ok ? '#7ee787' : '#ff8a8a') + '">' + r.toFixed(2) + '</b> 个屏幕像素　' +
+    (ok ? '✓ 像素无损，可判读' : '✗ 已缩小，判读会糊') +
+    '　<span style="color:#ffc14d">▲</span> ' + Math.round(p) + '% 起与真机同密度' +
+    ' <button id="jumpReal" style="padding:1px 6px;font-size:10px;background:#3a2f12;' +
+    'color:#ffc14d;border:1px solid #7a6420;border-radius:4px;cursor:pointer">' +
+    '跳到真机像素</button>';
+  const jb = document.getElementById('jumpReal');
+  if (jb) jb.onclick = function () { setPct(p); };
+}
+window.addEventListener('resize', function () { try { syncPxInfo(); } catch (e) {} });
+
+/* ---- 控件 ---- */
+document.getElementById('ratio').oninput = function () { setPct(+this.value); };
+document.querySelectorAll('.seg button[data-z]').forEach(b => {
+  b.onclick = function () { setPct([0, 22, 62, 100][+this.dataset.z]); };
+});
+document.querySelectorAll('.seg button[data-view]').forEach(b => {
+  b.onclick = function () { gotoView(this.dataset.view); };
+});
+document.getElementById('glass').onclick = function () {
+  showGlass = !showGlass; this.classList.toggle('on', showGlass); applyGlass();
+};
+document.querySelectorAll('#dispSeg button[data-disp]').forEach(b => {
+  b.onclick = function () {
+    setDisp(this.dataset.disp);
+    document.querySelectorAll('#dispSeg button[data-disp]').forEach(o => o.classList.toggle('on', o === this));
+  };
+});
+document.getElementById('metal').oninput = function () {
+  matChrome.envMapIntensity = this.value / 100;
+  document.getElementById('metVal').textContent = (this.value / 100).toFixed(2);
+};
+document.getElementById('rough').oninput = function () {
+  matChrome.roughness = this.value / 100;
+  document.getElementById('rghVal').textContent = (this.value / 100).toFixed(3);
+};
+document.getElementById('play').onclick = function () {
+  playing = !playing; this.textContent = playing ? '暂停' : '播放'; this.classList.toggle('on', playing);
+};
+document.getElementById('restart').onclick = function () {
+  p = 0; playing = true;
+  const b = document.getElementById('play'); b.textContent = '暂停'; b.classList.add('on');
+};
+document.getElementById('scrub').oninput = function () {
+  p = this.value / 1000 * TL.total; playing = false;
+  const b = document.getElementById('play'); b.textContent = '播放'; b.classList.remove('on');
+};
+document.getElementById('speed').oninput = function () {
+  speedMul = this.value / 100;
+  document.getElementById('speedVal').textContent =
+    speedMul.toFixed(2) + '×（总长 ' + (TL.total * speedMul).toFixed(1) + 's）';
+};
+document.getElementById('scrollms').oninput = function () {
+  scrollMs = +this.value;
+  document.getElementById('scrollVal').textContent = scrollMs + ' ms/行';
+  rebuild(true);
+};
+/* 塌缩效果切换：保住当前播放位置，方便原地对比四种效果 */
+const COLL_NAME = ['原 · 向心吸', '甲 · 关机式', '乙 · 数据删除', '丙 · 像素解体'];
+function collSync() {
+  document.querySelectorAll('#collSeg button[data-col]').forEach(b =>
+    b.classList.toggle('on', +b.dataset.col === collapseMode));
+  const info = document.getElementById('collInfo');
+  if (info) {
+    const ph = TL && TL.P.filter(x => x.k === 'collapse')[0];
+    info.innerHTML = '当前：<b>' + COLL_NAME[collapseMode] + '</b>　本段时长 <b>' +
+      COLLAPSE_DUR[collapseMode].toFixed(2) + 's</b>' +
+      (ph ? '　（片中位置 ' + ph.t0.toFixed(2) + '–' + ph.t1.toFixed(2) + 's）' : '') +
+      '　总长 ' + (TL ? TL.total.toFixed(2) : '?') + 's';
+  }
+}
+document.querySelectorAll('#collSeg button[data-col]').forEach(b => {
+  b.onclick = function () {
+    collapseMode = +this.dataset.col;
+    act1RowLen = null;
+    rebuild(true);                       /* 保住进度，原地看新效果 */
+    collSync();
+  };
+});
+document.getElementById('jumpColl').onclick = function () {
+  const ph = TL.P.filter(x => x.k === 'collapse')[0];
+  if (!ph) return;
+  p = Math.max(0, ph.t0 - 0.45);         /* 往前 0.45s，能看到抖动前的画面 */
+  playing = false;
+  const pb = document.getElementById('play'); pb.textContent = '播放'; pb.classList.remove('on');
+};
+document.getElementById('typescale').oninput = function () {
+  typeScale = this.value / 100;
+  document.getElementById('typeVal').textContent = typeScale.toFixed(2) + '×';
+  rebuild(true);
+};
+document.getElementById('lightSeg').onclick = function (e) {
+  if (e.target.tagName !== 'BUTTON') return;
+  ambient = parseFloat(e.target.dataset.v);
+  [].forEach.call(this.children, b => b.classList.toggle('on', b === e.target));
+};
+/* 模式切换 */
+document.getElementById('modeSeg').onclick = function (e) {
+  if (e.target.tagName !== 'BUTTON') return;
+  mode = e.target.dataset.mode;
+  [].forEach.call(this.querySelectorAll('button'), b => b.classList.toggle('on', b === e.target));
+  document.getElementById('bootCtl').style.display = mode === 'boot' ? '' : 'none';
+  document.getElementById('batCtl').style.display = mode === 'battery' ? '' : 'none';
+  document.getElementById('lowCtl').style.display = mode === 'low' ? '' : 'none';
+  document.getElementById('critCtl').style.display = mode === 'crit' ? '' : 'none';
+  document.getElementById('rainCtl').style.display = mode === 'rain' ? '' : 'none';
+  document.getElementById('btCtl').style.display = mode === 'bt' ? '' : 'none';
+  if (mode === 'battery') { batT = 0; batIntroOn = true; batIntroT = 0; }
+  if (mode === 'low') { lowT = 0; }
+  if (mode === 'crit') { critT = 0; }
+  if (mode === 'rain') { rainT = 0; rainReset(); rainPlaying = true; }
+  if (mode === 'bt') { btAnimStart = performance.now(); btShow = 0; btShowUntil = 0; btAnim = 0; btTapIdle = 0; btTaps = 0; btRainReset(); }
+};
+/* 电量调试 */
+function batSync() {
+  document.getElementById('batVal').textContent = Math.round(batLevel) + '%';
+  document.getElementById('batRateVal').textContent = batRate.toFixed(1) + ' %/秒';
+  document.getElementById('batAuto').textContent = '自动掉电：' + (batAuto ? '开' : '关');
+  document.getElementById('batAuto').classList.toggle('on', batAuto);
+}
+document.getElementById('batLevel').oninput = function () {
+  batLevel = +this.value; batIntroOn = false; batSync();
+};
+document.getElementById('batRate').oninput = function () {
+  batRate = this.value / 10; batSync();
+};
+document.getElementById('batAuto').onclick = function () {
+  batAuto = !batAuto; if (batAuto && batLevel <= 0) batLevel = 100; batSync();
+};
+document.getElementById('batEmpty').onclick = function () {
+  batShowEmpty = !batShowEmpty; this.classList.toggle('on', batShowEmpty);
+};
+document.getElementById('batReplay').onclick = function () {
+  batT = 0; batIntroOn = true; batIntroT = 0;
+};
+document.getElementById('batDur').oninput = function () {
+  batDur = this.value / 10;
+  document.getElementById('batDurVal').textContent = batDur.toFixed(1) + ' 秒';
+  batT = 0; batIntroOn = true; batIntroT = 0;
+};
+document.getElementById('batLoop').onclick = function () {
+  batLoopOn = !batLoopOn; this.classList.toggle('on', batLoopOn);
+};
+batSync();
+
+/* 低电量文案调试 */
+function lowSync() {
+  document.getElementById('lowVal').textContent = Math.round(lowLevel) + '%';
+  document.getElementById('lowText').value = lowLines.join('\n');
+  document.getElementById('lowFsVal').textContent = lowFont + ' px';
+  document.querySelectorAll('#lowCtl button[data-low]').forEach(b =>
+    b.classList.toggle('on', +b.dataset.low === lowPreset));
+  document.querySelectorAll('#lowFontSeg button[data-lfs]').forEach(b =>
+    b.classList.toggle('on', +b.dataset.lfs === lowFont));
+  const fit = document.getElementById('lowFit');
+  if (fit) {
+    const bad = lowLines.filter(s => s.length > lowCOLS);
+    fit.innerHTML = bad.length
+      ? '⚠ <b>' + lowFont + 'px 每行上限 ' + lowCOLS + ' 字</b>，这几行放不下：' +
+        bad.map(s => '“' + s + '” ' + s.length + '字').join('　')
+      : '本字号每行上限 <b>' + lowCOLS + '</b> 字　当前 <b>' + lowFont + '</b> px' +
+        '（真机字高约 ' + (lowFont * (12.66 / W)).toFixed(2) + ' mm）';
+  }
+}
+document.getElementById('lowLevel').oninput = function () { lowLevel = +this.value; lowSync(); };
+document.querySelectorAll('#lowFontSeg button[data-lfs]').forEach(b => {
+  b.onclick = function () { lowFont = +this.dataset.lfs; lowMeasure(); lowT = 0; lowSync(); };
+});
+document.getElementById('lowReplay').onclick = function () { lowT = 0; };
+document.getElementById('lowLoop').onclick = function () {
+  lowLoopOn = !lowLoopOn; this.classList.toggle('on', lowLoopOn);
+};
+document.querySelectorAll('#lowCtl button[data-low]').forEach(b => {
+  b.onclick = function () {
+    lowPreset = +this.dataset.low;
+    lowLines = LOW_PRESETS[lowPreset].slice();
+    lowT = 0; lowSync();
+  };
+});
+document.getElementById('lowText').oninput = function () {
+  const ls = this.value.split('\n').map(s => s).filter(s => s.length);
+  if (ls.length) { lowLines = ls.slice(0, VISIBLE_ROWS); lowT = 0; }
+};
+lowSync();
+
+/* 极低电量遗言调试 */
+function critWarn() {
+  const el = document.getElementById('critWarn');
+  if (!el) return;
+  const cols = critCols();
+  const bad = critLines.filter(s => s.length > cols);
+  el.innerHTML = bad.length
+    ? '⚠ 超宽（本字号每行 ' + cols + ' 字）：' +
+      bad.map(s => '“' + s + '” ' + s.length + '字').join('　')
+    : '本字号每行上限 <b>' + cols + '</b> 字　当前 <b>' + critFont + '</b> px';
+}
+function critSync() {
+  document.getElementById('critVal').textContent = Math.round(critLevel) + '%';
+  document.getElementById('critText').value = critLines.join('\n');
+  document.getElementById('critFsVal').textContent = critFont + ' px';
+  document.querySelectorAll('#critCtl button[data-crit]').forEach(b =>
+    b.classList.toggle('on', +b.dataset.crit === critPreset));
+  document.querySelectorAll('#critFontSeg button[data-cfs]').forEach(b =>
+    b.classList.toggle('on', +b.dataset.cfs === critFont));
+  critWarn();
+}
+document.getElementById('critLevel').oninput = function () { critLevel = +this.value; critSync(); };
+document.getElementById('critReplay').onclick = function () { critT = 0; };
+document.getElementById('critEmpty').onclick = function () {
+  critShowEmpty = !critShowEmpty; this.classList.toggle('on', critShowEmpty); critT = 0;
+};
+document.getElementById('critLoop').onclick = function () {
+  critLoopOn = !critLoopOn; this.classList.toggle('on', critLoopOn);
+};
+document.querySelectorAll('#critCtl button[data-crit]').forEach(b => {
+  b.onclick = function () {
+    critPreset = +this.dataset.crit;
+    critLines = CRIT_PRESETS[critPreset].slice();
+    critT = 0; critSync();
+  };
+});
+document.querySelectorAll('#critFontSeg button[data-cfs]').forEach(b => {
+  b.onclick = function () {
+    critFont = +this.dataset.cfs;
+    critMeasure();
+    critT = 0; critSync();
+  };
+});
+document.getElementById('critText').oninput = function () {
+  const ls = this.value.split('\n').filter(s => s.length);
+  if (ls.length) { critLines = ls.slice(0, 4); critT = 0; critWarn(); }
+};
+critSync();
+
+/* 代码雨 + 文字 调试 */
+let rainPlaying = true;
+function rainSync() {
+  document.getElementById('rsVal').textContent = rainSpeed;
+  document.getElementById('rtVal').textContent = rainTail;
+  document.getElementById('rmVal').textContent = rainMut;
+  document.getElementById('rjVal').textContent = rainJitter.toFixed(1);
+  document.getElementById('rcVal').textContent = rainCols + ' 列 · 每列 ' + rainCell().toFixed(1) + 'px';
+  document.getElementById('rrVal').textContent = rainRows;
+  document.getElementById('rfVal').textContent = rainFont + ' px';
+  document.getElementById('rmsVal').textContent = rainTypeMs;
+  document.getElementById('rhVal').textContent = rainHold.toFixed(1) + 's';
+  document.getElementById('rtfVal').textContent = rainTextFont + ' px';
+  document.getElementById('rainText2').value = RAIN_TEXT.join('\n');
+  document.querySelectorAll('#rainColSeg button[data-rc]').forEach(b =>
+    b.classList.toggle('on', +b.dataset.rc === rainCols));
+  document.querySelectorAll('#rainFontSeg button[data-rf]').forEach(b =>
+    b.classList.toggle('on', +b.dataset.rf === rainFont));
+  document.querySelectorAll('#rainTextFontSeg button[data-rtf]').forEach(b =>
+    b.classList.toggle('on', +b.dataset.rtf === rainTextFont));
+  const info = document.getElementById('rainInfo');
+  if (info) {
+    const gw = (function () { g.font = rainFont + 'px ' + FONT; return g.measureText('ア').width; })();
+    info.innerHTML =
+      '总长 <b>' + rainTotal().toFixed(2) + 's</b>（雨段 <b>7.00s 固定</b> + 文字段 ' +
+      (rainTypedTotal() + rainHold).toFixed(2) + 's）<br>' +
+      '单列可见 <b>' + rainRows + '</b> 个（行高 ' + rainLH().toFixed(1) + 'px）　' +
+      '全角假名宽 <b>' + gw.toFixed(1) + 'px</b>　列间距 ' + rainCell().toFixed(1) + 'px　' +
+      (gw > rainCell() ? '<span style="color:#ffc14d">⚠ 字宽 > 列间距，相邻列会横向重叠</span>'
+                       : '列间留白 ' + (rainCell() - gw).toFixed(1) + 'px');
+  }
+}
+function rainJumpText() {
+  rainT = RAIN_SEC + RAIN_FADE + RAIN_GAP;
+  rainPlaying = true;
+  const b = document.getElementById('rainPlay');
+  if (b) { b.textContent = '暂停'; b.classList.add('on'); }
+}
+document.getElementById('rainPlay').onclick = function () {
+  rainPlaying = !rainPlaying;
+  this.textContent = rainPlaying ? '暂停' : '播放';
+  this.classList.toggle('on', rainPlaying);
+};
+document.getElementById('rainReplay').onclick = function () {
+  rainT = 0; rainReset(); rainPlaying = true;
+  const b = document.getElementById('rainPlay');
+  b.textContent = '暂停'; b.classList.add('on');
+};
+document.getElementById('rainLoop').onclick = function () {
+  rainLoopOn = !rainLoopOn; this.classList.toggle('on', rainLoopOn);
+};
+document.getElementById('rainJump').onclick = rainJumpText;
+document.getElementById('rainSpeed').oninput  = function () { rainSpeed = +this.value; rainSync(); };
+document.getElementById('rainRows').oninput   = function () { rainRows = +this.value; rainReset(); rainSync(); };
+document.getElementById('rainTail').oninput   = function () { rainTail = +this.value; rainReset(); rainSync(); };
+document.getElementById('rainMut').oninput    = function () { rainMut = +this.value; rainSync(); };
+document.getElementById('rainJitter').oninput = function () { rainJitter = this.value / 10; rainReset(); rainSync(); };
+document.getElementById('rainTypeMs').oninput = function () { rainTypeMs = +this.value; rainSync(); };
+document.getElementById('rainHold').oninput   = function () { rainHold = this.value / 10; rainSync(); };
+document.getElementById('rainCursor').onclick = function () {
+  rainCursorOn = !rainCursorOn; this.classList.toggle('on', rainCursorOn);
+};
+document.getElementById('rainFlash').onclick = function () {
+  rainFlashOn = !rainFlashOn; this.classList.toggle('on', rainFlashOn);
+};
+document.querySelectorAll('#rainColSeg button[data-rc]').forEach(b => {
+  b.onclick = function () { rainCols = +this.dataset.rc; rainReset(); rainT = 0; rainSync(); };
+});
+document.querySelectorAll('#rainFontSeg button[data-rf]').forEach(b => {
+  b.onclick = function () { rainFont = +this.dataset.rf; rainReset(); rainT = 0; rainSync(); };
+});
+document.querySelectorAll('#rainTextFontSeg button[data-rtf]').forEach(b => {
+  b.onclick = function () { rainTextFont = +this.dataset.rtf; rainSync(); };
+});
+document.getElementById('rainText2').oninput = function () {
+  const ls = this.value.split('\n').filter(s => s.length);
+  if (ls.length) { RAIN_TEXT = ls.slice(0, 3); }
+};
+rainSync();
+
+/* 银行卡参照框：宽高按 pxPerMm 真实换算，用来把 0% 校准成实物尺寸 */
+function syncCard() {
+  const c = document.getElementById('card');
+  c.style.width = Math.round(85.6 * pxPerMm) + 'px';
+  c.style.height = Math.round(53.98 * pxPerMm) + 'px';
+  document.getElementById('ppmVal').textContent = pxPerMm.toFixed(2);
+}
+document.getElementById('ppm').oninput = function () {
+  pxPerMm = this.value / 100;
+  try { localStorage.setItem(PPM_KEY, String(pxPerMm)); } catch (e) {}
+  syncCard();
+  setPct(zoomPct);          /* 校准值一变，0% 的相机距离立刻跟着改 */
+  syncPxInfo();
+};
+document.getElementById('ppm').value = Math.round(pxPerMm * 100);   /* 让滑块对上已记住的值 */
+
+/* 初始化 */
+rebuild(false);
+document.getElementById('speedVal').textContent =
+  '1.40×（总长 ' + (TL.total * speedMul).toFixed(1) + 's）';
+syncCard(); setPct(42);
+const QP = new URLSearchParams(location.search);
+if (QP.has('fs')) setFont(parseInt(QP.get('fs'), 10) || 16);
+if (QP.has('rough')) matChrome.roughness = parseFloat(QP.get('rough'));
+if (QP.has('wire')) { matChrome.wireframe = true; matChrome.roughness = 1.0; matGlass.visible = false; }
+if (QP.has('z')) setPct(parseFloat(QP.get('z')));
+/* ?mode=battery&bat=78 可直接进电量调试（分享单帧用） */
+if (QP.get('mode') === 'battery') {
+  document.querySelector('#modeSeg button[data-mode="battery"]').click();
+  if (QP.has('bat')) { batLevel = parseFloat(QP.get('bat')); batIntroOn = false; batSync(); }
+  if (QP.has('empty')) { batShowEmpty = false; document.getElementById('batEmpty').classList.remove('on'); }
+}
+if (QP.get('mode') === 'low') {
+  document.querySelector('#modeSeg button[data-mode="low"]').click();
+  if (QP.has('bat')) { lowLevel = parseFloat(QP.get('bat')); lowSync(); }
+  if (QP.has('preset')) {
+    lowPreset = parseInt(QP.get('preset'), 10) || 0;
+    lowLines = LOW_PRESETS[lowPreset].slice(); lowSync();
+  }
+  if (QP.has('lfs')) { lowFont = parseInt(QP.get('lfs'), 10) || 20; lowMeasure(); lowSync(); }
+  if (QP.has('lt')) { lowT = parseFloat(QP.get('lt')); lowLoopOn = false; }
+}
+/* ?mode=crit&preset=0&cfs=32&bat=2&lt=0.8 直接进极低电量调试（出图用） */
+if (QP.get('mode') === 'crit') {
+  document.querySelector('#modeSeg button[data-mode="crit"]').click();
+  if (QP.has('bat')) { critLevel = parseFloat(QP.get('bat')); }
+  if (QP.has('preset')) {
+    critPreset = parseInt(QP.get('preset'), 10) || 0;
+    critLines = CRIT_PRESETS[critPreset].slice();
+  }
+  if (QP.has('cfs')) { critFont = parseInt(QP.get('cfs'), 10) || 32; critMeasure(); }
+  if (QP.get('empty') === '0') {
+    critShowEmpty = false;
+    document.getElementById('critEmpty').classList.remove('on');
+  }
+  critSync();
+}
+/* ?mode=rain&rt2=3.0&rs=8&rt=6&rc=6&rf=24  —— 代码雨 + 文字（出图核对用） */
+if (QP.get('mode') === 'rain') {
+  document.querySelector('#modeSeg button[data-mode="rain"]').click();
+  if (QP.has('rs'))  rainSpeed  = parseFloat(QP.get('rs'));
+  if (QP.has('rmu')) rainMut    = parseFloat(QP.get('rmu'));
+  if (QP.has('rms')) rainTypeMs = parseInt(QP.get('rms'), 10);
+  if (QP.has('rt'))  rainTail   = parseInt(QP.get('rt'), 10);
+  if (QP.has('rc'))  rainCols   = parseInt(QP.get('rc'), 10);
+  if (QP.has('rf'))  rainFont   = parseInt(QP.get('rf'), 10);
+  if (QP.has('rr'))  rainRows   = parseInt(QP.get('rr'), 10);
+  if (QP.has('rj'))  rainJitter = parseFloat(QP.get('rj'));
+  if (QP.has('rtf')) rainTextFont = parseInt(QP.get('rtf'), 10);
+  rainReset(); rainSync();
+  if (QP.has('rt2')) { rainT = parseFloat(QP.get('rt2')); rainPlaying = false; }
+  if (QP.has('lt')) { critT = parseFloat(QP.get('lt')); critLoopOn = false; }
+}
+if (QP.has('collapse')) {
+  const cm = parseInt(QP.get('collapse'), 10);
+  if (cm >= 0 && cm <= 3) {
+    collapseMode = cm; act1RowLen = null; rebuild(false);
+    if (typeof collSync === 'function') collSync();
+  }
+}
+if (QP.has('t')) {
+  p = Math.max(0, Math.min(TL.total, parseFloat(QP.get('t')) || 0));
+  playing = false;
+  const b = document.getElementById('play'); b.textContent = '播放'; b.classList.remove('on');
+}
+if (QP.has('az')) az = parseFloat(QP.get('az'));
+if (QP.has('el')) el = parseFloat(QP.get('el'));
+if (QP.has('depth')) { scrDepth = parseFloat(QP.get('depth')); setPct(pctFromDepth(scrDepth)); }
+if (QP.get('glass') === '0') document.getElementById('glass').click();
+if (QP.get('disp') === 'a') document.querySelector('#dispSeg button[data-disp="A"]').click();
+updateCamera();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
