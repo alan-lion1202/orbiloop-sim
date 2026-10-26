@@ -384,6 +384,7 @@
 <script src="data/shell.js"></script>
 <script src="data/env.js"></script>
 <script src="data/bt_frames.js"></script>
+<script src="data/bt_conn_frames.js"></script>
 <script>
 /* ============================================================
    开机自检彩蛋 —— 3D 效果模拟器
@@ -1557,11 +1558,16 @@ function renderBt(dt) {
   const isConn = (btState === 'conn');
   const b = isConn ? 1 : breathe;
 
-  /* v3：广播态直接用图片序列；图片里没有"已连接"状态，已连接仍用代码画（符号 + 对焦框） */
+  /* v3：广播态用径向扩散图片序列，已连接态用反向渐红图片序列（都带四角对焦框） */
   if (btV === 3) {
     if (isConn) {
-      btStroke(1, 1);
-      btStateLayer(1);
+      const ci = btConnFrame();
+      if (ci) {
+        g.drawImage(ci, 0, 0);
+      } else {
+        btStroke(1, 1);
+        btStateLayer(1);
+      }
     } else {
       const img = btGifFrame();
       if (img) {
@@ -1614,6 +1620,26 @@ function btGifFrame() {
   const ms = (typeof BT_GIF_FRAME_MS === "number") ? BT_GIF_FRAME_MS : 50;
   const idx = Math.floor((btAnim * 1000) / ms) % BT_GIF_IMG.length;
   const img = BT_GIF_IMG[idx];
+  return (img && img.complete && img.naturalWidth) ? img : null;
+}
+
+/* ---- v3 已连接：图片序列（60 帧 150×128，每帧 50ms，红色粒子向符号聚拢 + 四角对焦框）---- */
+const BT_CONN_IMG = [];
+let btConnReady = 0;
+(function btConnLoad() {
+  if (typeof BT_CONN_FRAMES === "undefined") return;
+  for (let i = 0; i < BT_CONN_FRAMES.length; i++) {
+    const img = new Image();
+    img.onload = function () { btConnReady++; };
+    img.src = BT_CONN_FRAMES[i];
+    BT_CONN_IMG.push(img);
+  }
+})();
+function btConnFrame() {
+  if (!BT_CONN_IMG.length) return null;
+  const ms = (typeof BT_CONN_FRAME_MS === "number") ? BT_CONN_FRAME_MS : 50;
+  const idx = Math.floor((btAnim * 1000) / ms) % BT_CONN_IMG.length;
+  const img = BT_CONN_IMG[idx];
   return (img && img.complete && img.naturalWidth) ? img : null;
 }
 
